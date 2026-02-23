@@ -1,0 +1,49 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database
+*.db
+*.sqlite3
+
+# ChromaDB local storage
+chroma_data/
+
+# Uploaded PDFs storage
+storage/
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Papers (user data, not tracked)
+papers/
+*.pdf
+sample_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.next/

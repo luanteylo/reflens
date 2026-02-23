@@ -1,0 +1,189 @@
+"""SQLAlchemy models for RefLens.
+
+All models include user_id for SaaS-readiness. In local mode a default user is used.
+"""
+
+import uuid
+from datetime import datetime, timezone
+from enum import Enum as PyEnum
+
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.sqlite import JSON
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+DEFAULT_USER_ID = "local"
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class ReadingStatus(PyEnum):
+    UNREAD = "unread"
+    PARTIAL = "partial"
+    READ = "read"
+
+
+# -- Association tables --
+
+class PaperAuthor(Base):
+    __tablename__ = "paper_authors"
+
+    paper_id: Mapped[str] = mapped_column(
+        ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True
+    )
+    author_id: Mapped[str] = mapped_column(
+        ForeignKey("authors.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PaperTag(Base):
+    __tablename__ = "paper_tags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id"))
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id"))
+    section: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    source: Mapped[str] = mapped_column(String(10), default="ai")  # "ai" or "user"
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID)
+
+    tag: Mapped["Tag"] = relationship(lazy="joined")
+
+
+# -- Main models --
+
+class Paper(Base):
+    __tablename__ = "papers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+
+    title: Mapped[str] = mapped_column(String(1000))
+    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sections: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    doi: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_file: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # AI-generated fields
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_key_contributions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    ai_methodology: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_findings: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_limitations: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+    # Relationships
+    authors: Mapped[list["Author"]] = relationship(
+        secondary="paper_authors",
+        back_populates="papers",
+        passive_deletes=True,
+    )
+    citing_refs: Mapped[list["Citation"]] = relationship(
+        back_populates="citing_paper",
+        foreign_keys="Citation.citing_paper_id",
+        cascade="all, delete-orphan",
+    )
+    tags: Mapped[list["PaperTag"]] = relationship(cascade="all, delete-orphan")
+    notes: Mapped[list["UserNote"]] = relationship(
+        back_populates="paper", cascade="all, delete-orphan"
+    )
+
+
+class Author(Base):
+    __tablename__ = "authors"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(500))
+    affiliations: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    papers: Mapped[list["Paper"]] = relationship(
+        secondary="paper_authors", back_populates="authors"
+    )
+
+
+class Citation(Base):
+    __tablename__ = "citations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+
+    citing_paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id"))
+    cited_paper_id: Mapped[str | None] = mapped_column(
+        ForeignKey("papers.id"), nullable=True
+    )
+
+    cited_title: Mapped[str] = mapped_column(String(1000))
+    cited_authors: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    cited_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cited_doi: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    raw_reference: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    citing_paper: Mapped["Paper"] = relationship(
+        back_populates="citing_refs", foreign_keys=[citing_paper_id]
+    )
+    cited_paper: Mapped["Paper | None"] = relationship(
+        foreign_keys=[cited_paper_id], passive_deletes=True
+    )
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), unique=True)
+    parent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tags.id"), nullable=True
+    )
+
+    children: Mapped[list["Tag"]] = relationship(back_populates="parent")
+    parent: Mapped["Tag | None"] = relationship(
+        back_populates="children", remote_side=[id]
+    )
+
+
+class UserNote(Base):
+    __tablename__ = "user_notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+    paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id"))
+
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reading_status: Mapped[ReadingStatus] = mapped_column(
+        Enum(ReadingStatus), default=ReadingStatus.UNREAD
+    )
+    relevance_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+    paper: Mapped["Paper"] = relationship(back_populates="notes")

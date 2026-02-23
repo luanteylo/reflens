@@ -1,0 +1,17 @@
+services:
+  reflens:
+    build: .
+    ports:
+      - "${REFLENS_PORT:-8000}:8000"
+    volumes:
+      - ./storage:/app/storage
+      - ./chroma_data:/app/chroma_data
+    env_file:
+      - .env
+    depends_on:
+      - grobid
+
+  grobid:
+    image: lfoppiano/grobid:0.8.1
+    ports:
+      - "8070:8070"
