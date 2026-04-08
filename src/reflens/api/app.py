@@ -55,6 +55,17 @@ def create_app() -> FastAPI:
     def health():
         return HealthResponse(status="ok", version=__version__)
 
+    @v1.get("/health/grobid", tags=["system"])
+    def grobid_health():
+        import httpx
+        from reflens.config import get_settings
+        settings = get_settings()
+        try:
+            resp = httpx.get(f"{settings.grobid_url}/api/isalive", timeout=3)
+            return {"status": "ok" if resp.status_code == 200 else "down"}
+        except Exception:
+            return {"status": "down"}
+
     app.include_router(v1)
 
     @app.get("/", include_in_schema=False)

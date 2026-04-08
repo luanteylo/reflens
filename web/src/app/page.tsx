@@ -99,14 +99,25 @@ const CitePanel = forwardRef<{ toggle: () => void }, { paperId: string }>(functi
 });
 
 // AI-powered result card (with explanation + stance)
-function AIResultCard({ item, onOpenPdf }: { item: ReferenceResult; onOpenPdf: (id: string, title: string) => void }) {
+function AIResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item: ReferenceResult; onOpenPdf: (id: string, title: string) => void; selected: boolean; onToggleSelect: () => void }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
   const citePanelRef = useRef<{ toggle: () => void }>(null);
 
   return (
-    <div className="max-w-2xl py-4">
+    <div className="max-w-2xl py-4 flex gap-3">
+      <button
+        onClick={onToggleSelect}
+        className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+          selected
+            ? "border-primary bg-primary text-white"
+            : "border-border hover:border-primary/50"
+        }`}
+      >
+        {selected && <Check className="h-3 w-3" />}
+      </button>
+      <div className="flex-1 min-w-0">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {authors}
         {paper.year ? ` · ${paper.year}` : ""}
@@ -150,19 +161,31 @@ function AIResultCard({ item, onOpenPdf }: { item: ReferenceResult; onOpenPdf: (
         </button>
       </div>
       <CitePanel ref={citePanelRef} paperId={paper.id} />
+      </div>
     </div>
   );
 }
 
 // Regular search result card (with abstract context)
-function SearchResultCard({ item, onOpenPdf }: { item: SearchResultItem; onOpenPdf: (id: string, title: string) => void }) {
+function SearchResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item: SearchResultItem; onOpenPdf: (id: string, title: string) => void; selected: boolean; onToggleSelect: () => void }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
   const citePanelRef = useRef<{ toggle: () => void }>(null);
 
   return (
-    <div className="max-w-2xl py-4">
+    <div className="max-w-2xl py-4 flex gap-3">
+      <button
+        onClick={onToggleSelect}
+        className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+          selected
+            ? "border-primary bg-primary text-white"
+            : "border-border hover:border-primary/50"
+        }`}
+      >
+        {selected && <Check className="h-3 w-3" />}
+      </button>
+      <div className="flex-1 min-w-0">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {authors}
         {paper.year ? ` · ${paper.year}` : ""}
@@ -210,6 +233,7 @@ function SearchResultCard({ item, onOpenPdf }: { item: SearchResultItem; onOpenP
         </button>
       </div>
       <CitePanel ref={citePanelRef} paperId={paper.id} />
+      </div>
     </div>
   );
 }
@@ -449,8 +473,8 @@ export default function HomePage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedColIds, setSelectedColIds] = useState<Set<string>>(new Set());
   const [pdfViewer, setPdfViewer] = useState<{ id: string; title: string } | null>(null);
-  const [aiEnabled, _setAiEnabled] = useState(true);
-  const aiRef = useRef(true);
+  const [aiEnabled, _setAiEnabled] = useState(false);
+  const aiRef = useRef(false);
   const setAiEnabled = (v: boolean) => { aiRef.current = v; _setAiEnabled(v); };
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -458,6 +482,8 @@ export default function HomePage() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
+  const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
+  const [bulkBibtexCopied, setBulkBibtexCopied] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
   const refMutation = useFindReferences();
   const qc = useQueryClient();
@@ -531,6 +557,7 @@ export default function HomePage() {
     setHasSearched(true);
     setSaved(false);
     setCachedResults(null);
+    setSelectedPaperIds(new Set());
     if (useAi) {
       setDebouncedQuery("");
       refMutation.mutate({
@@ -543,6 +570,26 @@ export default function HomePage() {
       refMutation.reset();
       setDebouncedQuery(input.trim());
     }
+  };
+
+  const togglePaperId = (id: string) => {
+    setSelectedPaperIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const copySelectedBibtex = async () => {
+    if (selectedPaperIds.size === 0) return;
+    try {
+      const entries = await Promise.all(
+        Array.from(selectedPaperIds).map((id) => api.papers.bibtex(id))
+      );
+      await navigator.clipboard.writeText(entries.join("\n\n"));
+      setBulkBibtexCopied(true);
+      setTimeout(() => setBulkBibtexCopied(false), 2500);
+    } catch { /* ignore */ }
   };
 
   const toggleCollectionId = (id: string) => {
@@ -781,24 +828,39 @@ export default function HomePage() {
                     {aiResults.length} reference{aiResults.length !== 1 ? "s" : ""} found
                     {activeColIds ? ` in ${activeColIds.length} collection${activeColIds.length !== 1 ? "s" : ""}` : ""}
                   </p>
-                  <button
-                    onClick={() => saveMutation.mutate({ text: input.trim(), collectionIds: activeColIds, results: aiResults })}
-                    disabled={saved || saveMutation.isPending}
-                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                      saved
-                        ? "text-primary"
-                        : saveError
-                          ? "border border-destructive text-destructive"
-                          : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
-                    }`}
-                  >
-                    <Bookmark className={`h-3 w-3 ${saved ? "fill-primary" : ""}`} />
-                    {saveMutation.isPending ? "Saving..." : saved ? "Saved" : saveError ? "Failed to save" : "Save search"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {selectedPaperIds.size > 0 && (
+                      <button
+                        onClick={copySelectedBibtex}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                          bulkBibtexCopied
+                            ? "text-green-600"
+                            : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {bulkBibtexCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        {bulkBibtexCopied ? `${selectedPaperIds.size} copied` : `Copy ${selectedPaperIds.size} BibTeX`}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => saveMutation.mutate({ text: input.trim(), collectionIds: activeColIds, results: aiResults })}
+                      disabled={saved || saveMutation.isPending}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        saved
+                          ? "text-primary"
+                          : saveError
+                            ? "border border-destructive text-destructive"
+                            : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <Bookmark className={`h-3 w-3 ${saved ? "fill-primary" : ""}`} />
+                      {saveMutation.isPending ? "Saving..." : saved ? "Saved" : saveError ? "Failed to save" : "Save search"}
+                    </button>
+                  </div>
                 </div>
                 <div className="divide-y divide-border">
                   {aiResults.map((item) => (
-                    <AIResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} />
+                    <AIResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} />
                   ))}
                 </div>
               </div>
@@ -831,12 +893,27 @@ export default function HomePage() {
 
             {regularResults && regularResults.length > 0 && (
               <div>
-                <p className="text-xs text-muted-foreground mb-2">
-                  {regularResults.length} result{regularResults.length !== 1 ? "s" : ""} for &quot;{regularSearchData?.query}&quot;
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-muted-foreground">
+                    {regularResults.length} result{regularResults.length !== 1 ? "s" : ""} for &quot;{regularSearchData?.query}&quot;
+                  </p>
+                  {selectedPaperIds.size > 0 && (
+                    <button
+                      onClick={copySelectedBibtex}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        bulkBibtexCopied
+                          ? "text-green-600"
+                          : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {bulkBibtexCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {bulkBibtexCopied ? `${selectedPaperIds.size} copied` : `Copy ${selectedPaperIds.size} BibTeX`}
+                    </button>
+                  )}
+                </div>
                 <div className="divide-y divide-border">
                   {regularResults.map((item) => (
-                    <SearchResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} />
+                    <SearchResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} />
                   ))}
                 </div>
               </div>

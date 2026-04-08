@@ -598,15 +598,23 @@ class RefLensEngine:
         finally:
             session.close()
 
-    def _collection_to_dict(self, col) -> dict:
-        children = [self._collection_to_dict(c) for c in (col.children or [])]
-        own_count = len(col.papers) if col.papers else 0
-        total_count = own_count + sum(c["paper_count"] for c in children)
+    def _collection_to_dict(self, col, all_paper_ids: set | None = None) -> dict:
+        if all_paper_ids is None:
+            all_paper_ids = set()
+        # Add this collection's own papers
+        own_ids = {p.id for p in col.papers} if col.papers else set()
+        all_paper_ids |= own_ids
+        # Process children, collecting their paper IDs into the same set
+        children = []
+        for c in (col.children or []):
+            child_ids: set = set()
+            children.append(self._collection_to_dict(c, child_ids))
+            all_paper_ids |= child_ids
         return {
             "id": col.id,
             "name": col.name,
             "parent_id": col.parent_id,
-            "paper_count": total_count,
+            "paper_count": len(all_paper_ids),
             "children": children,
             "created_at": col.created_at,
         }

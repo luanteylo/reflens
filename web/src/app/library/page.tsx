@@ -995,6 +995,13 @@ export default function LibraryPage() {
     enabled: !!activeCollection,
   });
 
+  const { data: grobidHealth } = useQuery({
+    queryKey: ["grobid-health"],
+    queryFn: () => api.grobidHealth(),
+    refetchInterval: 30000,
+  });
+  const grobidDown = grobidHealth?.status === "down";
+
   const deleteCollectionMutation = useMutation({
     mutationFn: (id: string) => api.collections.delete(id),
     onSuccess: () => {
@@ -1079,6 +1086,16 @@ export default function LibraryPage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
+        {/* GROBID warning */}
+        {grobidDown && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+            <span className="text-amber-500 text-lg">&#9888;</span>
+            <span>
+              <strong>GROBID is not running.</strong> PDF extraction will use basic fallback (limited metadata).
+            </span>
+          </div>
+        )}
+
         {/* Upload */}
         <UploadZone />
 
@@ -1099,11 +1116,14 @@ export default function LibraryPage() {
                   await api.collections.create(name, parentId);
                   qc.invalidateQueries({ queryKey: ["collections"] });
                 }}
-                onDrop={(paperIds, colId) => {
-                  api.collections.addPapers(colId, paperIds).then(() => {
-                    qc.invalidateQueries({ queryKey: ["collections"] });
-                    qc.invalidateQueries({ queryKey: ["collection-detail"] });
-                  });
+                onDrop={async (paperIds, targetColId) => {
+                  // Move: add to target, remove from source if viewing a collection
+                  await api.collections.addPapers(targetColId, paperIds);
+                  if (activeCollection && activeCollection !== targetColId) {
+                    await api.collections.removePapers(activeCollection, paperIds);
+                  }
+                  qc.invalidateQueries({ queryKey: ["collections"] });
+                  qc.invalidateQueries({ queryKey: ["collection-detail"] });
                 }}
               />
             </div>

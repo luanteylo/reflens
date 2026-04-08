@@ -195,6 +195,9 @@ export const api = {
       return request<void>(`/saved-searches/${id}`, { method: "DELETE" });
     },
   },
+  grobidHealth() {
+    return request<{ status: string }>("/health/grobid");
+  },
   authors: {
     list(limit = 50, offset = 0) {
       return request<AuthorListResponse>(`/authors?limit=${limit}&offset=${offset}`);

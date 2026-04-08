@@ -34,7 +34,7 @@ def save_search(
     if body.results:
         results_data = [r.model_dump(mode="json") for r in body.results]
     saved = engine.save_search(
-        body.text, group_id=body.group_id, results=results_data, user_id=user_id
+        body.text, collection_id=body.collection_id, results=results_data, user_id=user_id
     )
     return SavedSearchResponse(**saved)
 
