@@ -173,6 +173,7 @@ function SearchResultCard({ item }: { item: SearchResultItem }) {
 function AIToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
+      type="button"
       onClick={() => onChange(!enabled)}
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors ${
         enabled
@@ -223,6 +224,7 @@ function GroupSelector({
   return (
     <div ref={ref} className="relative inline-block">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
       >
@@ -234,6 +236,7 @@ function GroupSelector({
       {open && (
         <div className="absolute z-20 mt-1 min-w-[180px] rounded-lg border border-border bg-white shadow-lg overflow-hidden">
           <button
+            type="button"
             onClick={() => { onSelect(null); setOpen(false); }}
             className={`flex w-full items-center px-3 py-2 text-sm text-left hover:bg-muted transition-colors ${
               !selected ? "font-medium text-foreground" : "text-muted-foreground"
@@ -243,6 +246,7 @@ function GroupSelector({
           </button>
           {groups.map((g) => (
             <button
+              type="button"
               key={g.id}
               onClick={() => { onSelect(g); setOpen(false); }}
               className={`flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted transition-colors ${
@@ -296,7 +300,9 @@ export default function HomePage() {
   const [input, setInput] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<PaperGroup | null>(null);
-  const [aiEnabled, setAiEnabled] = useState(true);
+  const [aiEnabled, _setAiEnabled] = useState(true);
+  const aiRef = useRef(true);
+  const setAiEnabled = (v: boolean) => { aiRef.current = v; _setAiEnabled(v); };
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [cachedResults, setCachedResults] = useState<ReferenceResult[] | null>(null);
@@ -351,10 +357,11 @@ export default function HomePage() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
+    const useAi = aiRef.current;
     setHasSearched(true);
     setSaved(false);
     setCachedResults(null);
-    if (aiEnabled) {
+    if (useAi) {
       setDebouncedQuery("");
       refMutation.mutate({
         text: input.trim(),
