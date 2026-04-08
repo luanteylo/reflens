@@ -754,6 +754,7 @@ function FolderNode({
   activeId,
   onSelect,
   onDelete,
+  onCreate,
   onDrop,
 }: {
   col: PaperCollection;
@@ -761,16 +762,24 @@ function FolderNode({
   activeId: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
+  onCreate: (name: string, parentId: string) => void;
   onDrop: (paperIds: string[], colId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [dragOver, setDragOver] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const hasChildren = col.children && col.children.length > 0;
+
+  useEffect(() => {
+    if (creating && inputRef.current) inputRef.current.focus();
+  }, [creating]);
 
   return (
     <div>
       <div
-        className={`flex items-center gap-1 py-1 px-1 rounded-md cursor-pointer transition-colors ${
+        className={`group/folder flex items-center gap-1 py-1 px-1 rounded-md cursor-pointer transition-colors ${
           activeId === col.id
             ? "bg-primary/10 text-primary"
             : dragOver
@@ -792,7 +801,7 @@ function FolderNode({
           if (data) onDrop(JSON.parse(data), col.id);
         }}
       >
-        {hasChildren ? (
+        {hasChildren || creating ? (
           <button
             onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
             className="shrink-0 p-0.5"
@@ -804,11 +813,22 @@ function FolderNode({
         )}
         <FolderOpen className="h-3.5 w-3.5 shrink-0" />
         <span className="text-xs font-medium truncate flex-1">{col.name}</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setCreating(true);
+            setExpanded(true);
+          }}
+          className="opacity-0 group-hover/folder:opacity-100 shrink-0 text-muted-foreground hover:text-foreground transition-all"
+          title="New sub-collection"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
         <span className="text-xs opacity-50">{col.paper_count}</span>
       </div>
-      {expanded && hasChildren && (
+      {expanded && (
         <div>
-          {col.children.map((child) => (
+          {(hasChildren) && col.children.map((child) => (
             <FolderNode
               key={child.id}
               col={child}
@@ -816,9 +836,36 @@ function FolderNode({
               activeId={activeId}
               onSelect={onSelect}
               onDelete={onDelete}
+              onCreate={onCreate}
               onDrop={onDrop}
             />
           ))}
+          {creating && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (newName.trim()) {
+                  onCreate(newName.trim(), col.id);
+                  setNewName("");
+                  setCreating(false);
+                }
+              }}
+              className="flex items-center gap-1 py-1"
+              style={{ paddingLeft: `${4 + (depth + 1) * 16}px` }}
+            >
+              <FolderPlus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onBlur={() => { if (!newName.trim()) setCreating(false); }}
+                onKeyDown={(e) => { if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
+                placeholder="Collection name..."
+                className="flex-1 text-xs bg-transparent outline-none border-b border-border focus:border-primary"
+              />
+            </form>
+          )}
         </div>
       )}
     </div>
@@ -830,15 +877,23 @@ function FolderTree({
   activeId,
   onSelect,
   onDelete,
+  onCreate,
   onDrop,
 }: {
   collections: PaperCollection[];
   activeId: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
+  onCreate: (name: string, parentId?: string) => void;
   onDrop: (paperIds: string[], colId: string) => void;
 }) {
-  if (collections.length === 0) return null;
+  const [creatingRoot, setCreatingRoot] = useState(false);
+  const [rootName, setRootName] = useState("");
+  const rootInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (creatingRoot && rootInputRef.current) rootInputRef.current.focus();
+  }, [creatingRoot]);
 
   return (
     <div className="space-y-0.5">
@@ -861,9 +916,43 @@ function FolderTree({
           activeId={activeId}
           onSelect={onSelect}
           onDelete={onDelete}
+          onCreate={(name, parentId) => onCreate(name, parentId)}
           onDrop={onDrop}
         />
       ))}
+      {creatingRoot ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (rootName.trim()) {
+              onCreate(rootName.trim());
+              setRootName("");
+              setCreatingRoot(false);
+            }
+          }}
+          className="flex items-center gap-1 py-1 px-2"
+        >
+          <FolderPlus className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <input
+            ref={rootInputRef}
+            type="text"
+            value={rootName}
+            onChange={(e) => setRootName(e.target.value)}
+            onBlur={() => { if (!rootName.trim()) setCreatingRoot(false); }}
+            onKeyDown={(e) => { if (e.key === "Escape") { setCreatingRoot(false); setRootName(""); } }}
+            placeholder="Collection name..."
+            className="flex-1 text-xs bg-transparent outline-none border-b border-border focus:border-primary"
+          />
+        </form>
+      ) : (
+        <button
+          onClick={() => setCreatingRoot(true)}
+          className="flex items-center gap-1.5 w-full py-1 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          New collection
+        </button>
+      )}
     </div>
   );
 }
@@ -1006,6 +1095,10 @@ export default function LibraryPage() {
                   setOffset(0);
                 }}
                 onDelete={(id) => deleteCollectionMutation.mutate(id)}
+                onCreate={async (name, parentId) => {
+                  await api.collections.create(name, parentId);
+                  qc.invalidateQueries({ queryKey: ["collections"] });
+                }}
                 onDrop={(paperIds, colId) => {
                   api.collections.addPapers(colId, paperIds).then(() => {
                     qc.invalidateQueries({ queryKey: ["collections"] });

@@ -423,6 +423,27 @@ function PdfViewer({
   );
 }
 
+const HISTORY_KEY = "reflens-search-history";
+const MAX_HISTORY = 20;
+
+function getHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch { return []; }
+}
+
+function addToHistory(query: string) {
+  const history = getHistory().filter((q) => q !== query);
+  history.unshift(query);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+}
+
+function removeFromHistory(query: string) {
+  const history = getHistory().filter((q) => q !== query);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
 export default function HomePage() {
   const [input, setInput] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
@@ -435,8 +456,23 @@ export default function HomePage() {
   const [saveError, setSaveError] = useState(false);
   const [cachedResults, setCachedResults] = useState<ReferenceResult[] | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+  const historyRef = useRef<HTMLDivElement>(null);
   const refMutation = useFindReferences();
   const qc = useQueryClient();
+
+  // Load history on mount
+  useEffect(() => { setHistory(getHistory()); }, []);
+
+  // Close history dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) setShowHistory(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // Debounce input for regular search mode
   useEffect(() => {
@@ -489,6 +525,9 @@ export default function HomePage() {
     e.preventDefault();
     if (!input.trim()) return;
     const useAi = aiRef.current;
+    addToHistory(input.trim());
+    setHistory(getHistory());
+    setShowHistory(false);
     setHasSearched(true);
     setSaved(false);
     setCachedResults(null);
@@ -548,12 +587,13 @@ export default function HomePage() {
           Ref<span className="text-primary font-normal">Lens</span>
         </h1>
         <form onSubmit={handleSearch} className="w-full max-w-xl space-y-3">
-          <div className="relative">
+          <div className="relative" ref={historyRef}>
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onFocus={() => { if (history.length > 0) setShowHistory(true); }}
               placeholder={
                 aiEnabled
                   ? "Paste a claim to find supporting (or contradicting) references..."
@@ -562,6 +602,40 @@ export default function HomePage() {
               className="w-full rounded-full border border-border bg-white px-12 py-3.5 text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               autoFocus
             />
+            {showHistory && history.length > 0 && (
+              <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
+                <div className="px-3 py-1.5 text-xs text-muted-foreground/60 flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Recent searches
+                </div>
+                {history
+                  .filter((q) => !input || q.toLowerCase().includes(input.toLowerCase()))
+                  .map((q) => (
+                  <div key={q} className="group flex items-center hover:bg-muted transition-colors">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInput(q);
+                        setShowHistory(false);
+                      }}
+                      className="flex-1 px-3 py-2 text-sm text-left text-muted-foreground hover:text-foreground truncate"
+                    >
+                      {q}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        removeFromHistory(q);
+                        setHistory(getHistory());
+                      }}
+                      className="opacity-0 group-hover:opacity-100 px-2 text-muted-foreground hover:text-destructive transition-all"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-center gap-3">
             <AIToggle enabled={aiEnabled} onChange={setAiEnabled} />
@@ -625,16 +699,41 @@ export default function HomePage() {
             Ref<span className="text-primary font-normal">Lens</span>
           </Link>
           <form onSubmit={handleSearch} className="flex-1 max-w-xl">
-            <div className="relative">
+            <div className="relative" ref={historyRef}>
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <input
                 type="text"
                 value={input}
                 onChange={(e) => { setInput(e.target.value); setSaved(false); setCachedResults(null); }}
+                onFocus={() => { if (history.length > 0) setShowHistory(true); }}
                 placeholder={aiEnabled ? "Paste a claim..." : "Search papers..."}
                 className="w-full rounded-full border border-border bg-white pl-10 pr-4 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 autoFocus
               />
+              {showHistory && history.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
+                  {history
+                    .filter((q) => !input || q.toLowerCase().includes(input.toLowerCase()))
+                    .map((q) => (
+                    <div key={q} className="group flex items-center hover:bg-muted transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => { setInput(q); setShowHistory(false); }}
+                        className="flex-1 px-3 py-2 text-sm text-left text-muted-foreground hover:text-foreground truncate"
+                      >
+                        {q}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { removeFromHistory(q); setHistory(getHistory()); }}
+                        className="opacity-0 group-hover:opacity-100 px-2 text-muted-foreground hover:text-destructive transition-all"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </form>
           <AIToggle enabled={aiEnabled} onChange={(v) => {

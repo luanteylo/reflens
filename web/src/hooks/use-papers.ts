@@ -16,7 +16,11 @@ export function useDeletePaper() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.papers.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["papers"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["papers"] });
+      qc.invalidateQueries({ queryKey: ["collections"] });
+      qc.invalidateQueries({ queryKey: ["collection-detail"] });
+    },
   });
 }
 
