@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from reflens.extraction.pymupdf import PyMuPDFExtractor
 
 

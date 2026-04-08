@@ -46,8 +46,11 @@ class AIProvider(ABC):
     @abstractmethod
     async def explain_relevance(
         self, query: str, paper_title: str, paper_abstract: str, paper_text: str
-    ) -> str:
-        """Explain why a paper is relevant to a query."""
+    ) -> dict:
+        """Assess whether a paper supports, contradicts, or is neutral to a claim.
+
+        Returns {"stance": str, "explanation": str}.
+        """
 
     @abstractmethod
     async def check_claim(

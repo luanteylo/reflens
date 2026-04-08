@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from reflens import __version__
-from reflens.api.routes import authors, papers, search, tags
+from reflens.api.routes import authors, groups, papers, search, searches, tags, tasks
 from reflens.api.schemas import HealthResponse
 
 
@@ -40,6 +40,9 @@ def create_app() -> FastAPI:
     v1.include_router(search.router)
     v1.include_router(tags.router)
     v1.include_router(authors.router)
+    v1.include_router(tasks.router)
+    v1.include_router(groups.router)
+    v1.include_router(searches.router)
 
     @v1.get("/health", response_model=HealthResponse, tags=["system"])
     def health():

@@ -1,5 +1,9 @@
 """Tests for search and reference finder API endpoints."""
 
+from unittest.mock import AsyncMock
+
+from tests.test_api.conftest import _make_paper
+
 
 class TestSearch:
     def test_search_with_query(self, client, mock_engine):
@@ -58,7 +62,26 @@ class TestReferenceFinder:
         assert len(data["results"]) == 1
         assert data["results"][0]["score"] == 0.92
         assert data["results"][0]["paper"]["title"] == "Test Paper"
+        assert data["results"][0]["stance"] is None
         mock_engine.find_references.assert_called_once()
+
+    def test_find_references_with_stance(self, client, mock_engine):
+        mock_engine.find_references = AsyncMock(return_value=[
+            {
+                "paper": _make_paper(),
+                "score": 0.88,
+                "explanation": "This paper directly addresses IO patterns.",
+                "stance": "supports",
+            },
+        ])
+        resp = client.post(
+            "/api/v1/search/references",
+            json={"text": "HPC apps do IO in bursts", "explain": True},
+        )
+        assert resp.status_code == 200
+        result = resp.json()["results"][0]
+        assert result["stance"] == "supports"
+        assert result["explanation"] == "This paper directly addresses IO patterns."
 
     def test_find_references_with_explain(self, client, mock_engine):
         resp = client.post(
@@ -87,3 +110,39 @@ class TestReferenceFinder:
         call_kwargs = mock_engine.find_references.call_args
         assert call_kwargs.kwargs["limit"] == 5
         assert call_kwargs.kwargs["explain"] is False
+        assert call_kwargs.kwargs["tag_ids"] is None
+
+    def test_find_references_with_tag_ids(self, client, mock_engine):
+        resp = client.post(
+            "/api/v1/search/references",
+            json={"text": "HPC workloads", "tag_ids": ["tag-1", "tag-2"]},
+        )
+        assert resp.status_code == 200
+        call_kwargs = mock_engine.find_references.call_args
+        assert call_kwargs.kwargs["tag_ids"] == ["tag-1", "tag-2"]
+
+    def test_find_references_empty_tag_ids(self, client, mock_engine):
+        resp = client.post(
+            "/api/v1/search/references",
+            json={"text": "some claim", "tag_ids": []},
+        )
+        assert resp.status_code == 200
+        call_kwargs = mock_engine.find_references.call_args
+        assert call_kwargs.kwargs["tag_ids"] == []
+
+
+class TestEmbeddingStatus:
+    def test_embedding_status(self, client, mock_engine):
+        resp = client.get("/api/v1/search/embedding-status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_papers"] == 1
+        assert data["indexed_chunks"] == 5
+
+    def test_backfill_embeddings(self, client, mock_engine):
+        resp = client.post("/api/v1/search/backfill-embeddings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["indexed"] == 1
+        assert data["failed"] == 0
+        mock_engine.backfill_embeddings.assert_called_once()

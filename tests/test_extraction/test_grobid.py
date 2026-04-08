@@ -1,6 +1,5 @@
 """Tests for GROBID extraction client."""
 
-import pytest
 
 from reflens.extraction.grobid import GrobidClient
 

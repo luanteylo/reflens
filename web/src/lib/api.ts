@@ -1,17 +1,24 @@
 import type {
   AuthorListResponse,
+  GroupDetailResponse,
+  GroupListResponse,
   NoteUpdateRequest,
   PaperDetail,
+  PaperGroup,
   PaperListResponse,
   PaperSummary,
   PaperUploadResponse,
   ReferencesRequest,
   ReferencesResponse,
+  SavedSearch,
+  SavedSearchListResponse,
   SearchResponse,
   SummarizeResponse,
   TagGenerateResponse,
   TagListResponse,
   TagPapersResponse,
+  TaskCreatedResponse,
+  TaskStatusResponse,
   UserNote,
 } from "./types";
 
@@ -38,8 +45,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // Papers
 export const api = {
   papers: {
-    list(limit = 50, offset = 0) {
-      return request<PaperListResponse>(`/papers?limit=${limit}&offset=${offset}`);
+    list(limit = 50, offset = 0, tagIds?: string[]) {
+      const params = new URLSearchParams();
+      params.set("limit", String(limit));
+      params.set("offset", String(offset));
+      if (tagIds) {
+        for (const id of tagIds) params.append("tag_ids", id);
+      }
+      return request<PaperListResponse>(`/papers?${params.toString()}`);
     },
     get(id: string) {
       return request<PaperDetail>(`/papers/${id}`);
@@ -71,6 +84,17 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
+    summarizeAll() {
+      return request<TaskCreatedResponse>("/papers/summarize-all", { method: "POST" });
+    },
+    tagAll() {
+      return request<TaskCreatedResponse>("/papers/tag-all", { method: "POST" });
+    },
+  },
+  tasks: {
+    status(taskId: string) {
+      return request<TaskStatusResponse>(`/tasks/${taskId}`);
+    },
   },
   search(q: string) {
     return request<SearchResponse>(`/search?q=${encodeURIComponent(q)}`);
@@ -88,6 +112,57 @@ export const api = {
     },
     papers(tagId: string) {
       return request<TagPapersResponse>(`/tags/${tagId}/papers`);
+    },
+  },
+  groups: {
+    list() {
+      return request<GroupListResponse>("/groups");
+    },
+    get(id: string) {
+      return request<GroupDetailResponse>(`/groups/${id}`);
+    },
+    create(name: string) {
+      return request<PaperGroup>("/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+    },
+    delete(id: string) {
+      return request<void>(`/groups/${id}`, { method: "DELETE" });
+    },
+    addPapers(groupId: string, paperIds: string[]) {
+      return request<void>(`/groups/${groupId}/papers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paper_ids: paperIds }),
+      });
+    },
+    removePapers(groupId: string, paperIds: string[]) {
+      return request<void>(`/groups/${groupId}/papers`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paper_ids: paperIds }),
+      });
+    },
+  },
+  savedSearches: {
+    list() {
+      return request<SavedSearchListResponse>("/saved-searches");
+    },
+    save(text: string, groupId?: string, results?: unknown[]) {
+      return request<SavedSearch>("/saved-searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          group_id: groupId ?? null,
+          results: results ?? null,
+        }),
+      });
+    },
+    delete(id: string) {
+      return request<void>(`/saved-searches/${id}`, { method: "DELETE" });
     },
   },
   authors: {

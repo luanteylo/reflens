@@ -43,7 +43,7 @@ def ingest(pdf_path: Path, notes: str | None, status: str) -> None:
     with console.status(f"Extracting from {pdf_path.name}..."):
         result = engine.ingest_paper(pdf_path, notes=notes, reading_status=status)
 
-    console.print(f"\n[bold green]Paper ingested successfully![/bold green]")
+    console.print("\n[bold green]Paper ingested successfully![/bold green]")
     console.print(f"  ID:      {result['id']}")
     console.print(f"  Title:   {result['title']}")
     console.print(f"  Year:    {result['year'] or 'unknown'}")

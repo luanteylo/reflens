@@ -53,16 +53,18 @@ Respond in JSON as a list of objects with keys:
 Respond ONLY with valid JSON, no markdown fences."""
 
 RELEVANCE_PROMPT = """\
-A researcher wants to know if this paper is relevant to their query.
+A researcher wants to verify the following claim against a paper in their database.
 
-Query: {query}
+Claim: {query}
 
 Paper title: {paper_title}
 Paper abstract: {paper_abstract}
 Paper excerpt: {paper_text}
 
-Explain concisely (2-3 sentences) why this paper is or isn't relevant to the query.
-Be specific about which aspects of the paper relate to the query."""
+Assess whether this paper supports, contradicts, or is neutral to the claim.
+
+Respond ONLY with valid JSON:
+{{"stance": "supports" | "contradicts" | "neutral", "explanation": "2-3 sentence explanation"}}"""
 
 CLAIM_CHECK_PROMPT = """\
 A researcher wants to verify the following claim against their paper database.
@@ -182,7 +184,7 @@ class ClaudeProvider(AIProvider):
 
     async def explain_relevance(
         self, query: str, paper_title: str, paper_abstract: str, paper_text: str
-    ) -> str:
+    ) -> dict:
         truncated = paper_text[:10_000]
         response = self.client.messages.create(
             model=self.model,
@@ -199,7 +201,12 @@ class ClaudeProvider(AIProvider):
                 }
             ],
         )
-        return response.content[0].text
+        raw = response.content[0].text
+        try:
+            data = json.loads(_extract_json(raw))
+            return {"stance": data["stance"], "explanation": data["explanation"]}
+        except (json.JSONDecodeError, KeyError):
+            return {"stance": "neutral", "explanation": raw}
 
     async def check_claim(
         self, claim: str, supporting_texts: list[dict[str, str]]

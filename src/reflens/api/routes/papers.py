@@ -1,9 +1,10 @@
 """Paper endpoints: CRUD, upload, summarize, tag, notes."""
 
+import asyncio
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 
 from reflens.api.deps import get_engine, get_user_id
 from reflens.api.schemas import (
@@ -16,8 +17,10 @@ from reflens.api.schemas import (
     PaperUploadResponse,
     SummarizeResponse,
     TagGenerateResponse,
+    TaskCreatedResponse,
     UserNoteResponse,
 )
+from reflens.api.tasks import get_task_registry, run_bulk_task
 from reflens.core.engine import RefLensEngine
 
 router = APIRouter(prefix="/papers", tags=["papers"])
@@ -133,15 +136,44 @@ async def upload_paper(
     return PaperUploadResponse(**result)
 
 
+@router.post("/summarize-all", response_model=TaskCreatedResponse)
+async def summarize_all(
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    registry = get_task_registry()
+    task = registry.create("summarize-all")
+    if task.status.value == "pending":
+        asyncio.create_task(run_bulk_task(task.id, registry, engine, "summarize-all", user_id))
+    return TaskCreatedResponse(task_id=task.id)
+
+
+@router.post("/tag-all", response_model=TaskCreatedResponse)
+async def tag_all(
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    registry = get_task_registry()
+    task = registry.create("tag-all")
+    if task.status.value == "pending":
+        asyncio.create_task(run_bulk_task(task.id, registry, engine, "tag-all", user_id))
+    return TaskCreatedResponse(task_id=task.id)
+
+
 @router.get("", response_model=PaperListResponse)
 def list_papers(
     limit: int = 50,
     offset: int = 0,
+    tag_ids: list[str] | None = Query(None),
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
-    papers = engine.list_papers(user_id=user_id, limit=limit, offset=offset)
-    total = engine.count_papers(user_id=user_id)
+    if tag_ids:
+        papers = engine.list_papers_by_tags(tag_ids, user_id=user_id, limit=limit, offset=offset)
+        total = engine.count_papers_by_tags(tag_ids, user_id=user_id)
+    else:
+        papers = engine.list_papers(user_id=user_id, limit=limit, offset=offset)
+        total = engine.count_papers(user_id=user_id)
     return PaperListResponse(
         papers=[_paper_to_summary(p) for p in papers],
         total=total,

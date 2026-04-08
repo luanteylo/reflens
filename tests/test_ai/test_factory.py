@@ -2,8 +2,8 @@
 
 import pytest
 
-from reflens.ai.factory import create_ai_provider
 from reflens.ai.claude import ClaudeProvider
+from reflens.ai.factory import create_ai_provider
 from reflens.ai.openai_provider import OpenAIProvider
 from reflens.config import Settings
 

@@ -5,7 +5,6 @@ import logging
 
 import openai
 
-from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary
 from reflens.ai.claude import (
     CLAIM_CHECK_PROMPT,
     RELEVANCE_PROMPT,
@@ -13,6 +12,7 @@ from reflens.ai.claude import (
     TAGS_PROMPT,
     _extract_json,
 )
+from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class OpenAIProvider(AIProvider):
 
     async def explain_relevance(
         self, query: str, paper_title: str, paper_abstract: str, paper_text: str
-    ) -> str:
+    ) -> dict:
         truncated = paper_text[:10_000]
         response = self.client.chat.completions.create(
             model=self.model,
@@ -102,7 +102,12 @@ class OpenAIProvider(AIProvider):
                 }
             ],
         )
-        return response.choices[0].message.content or ""
+        raw = response.choices[0].message.content or ""
+        try:
+            data = json.loads(_extract_json(raw))
+            return {"stance": data["stance"], "explanation": data["explanation"]}
+        except (json.JSONDecodeError, KeyError):
+            return {"stance": "neutral", "explanation": raw}
 
     async def check_claim(
         self, claim: str, supporting_texts: list[dict[str, str]]

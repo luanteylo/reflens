@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
-import { Sidebar } from "@/components/layout/sidebar";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "RefLens",
@@ -13,8 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <Providers>
-          <Sidebar />
-          <main className="ml-56 min-h-screen p-6">{children}</main>
+          <main className="min-h-screen">{children}</main>
         </Providers>
       </body>
     </html>

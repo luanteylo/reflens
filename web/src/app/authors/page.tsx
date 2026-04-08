@@ -77,8 +77,8 @@ export default function AuthorsPage() {
                       href={`/papers/${paper.id}`}
                       className="block rounded-lg border border-border p-4 hover:bg-muted transition-colors"
                     >
-                      <p className="font-medium">{paper.title}</p>
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className="font-medium truncate">{paper.title}</p>
+                      <p className="text-sm text-muted-foreground mt-1 truncate">
                         {paper.authors.map((a) => a.name).join(", ")}
                         {paper.year ? ` (${paper.year})` : ""}
                       </p>

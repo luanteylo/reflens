@@ -3,12 +3,9 @@
 from sqlalchemy.orm import Session
 
 from reflens.db.models import (
-    Author,
     Citation,
     Paper,
-    PaperAuthor,
     ReadingStatus,
-    Tag,
     UserNote,
 )
 from reflens.db.repositories import (

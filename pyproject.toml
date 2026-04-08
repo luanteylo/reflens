@@ -56,6 +56,7 @@ postgres = [
 
 [project.scripts]
 reflens = "reflens.cli:main"
+reflens-mcp = "reflens.mcp.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

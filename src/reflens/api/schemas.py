@@ -91,6 +91,7 @@ class PaperUploadResponse(BaseModel):
     year: int | None = None
     doi: str | None = None
     citations_count: int
+    indexed: bool = False
 
 
 class SummarizeResponse(BaseModel):
@@ -114,6 +115,27 @@ class NoteUpdateRequest(BaseModel):
     is_favorite: bool = False
 
 
+class BulkActionResponse(BaseModel):
+    done: list[str]
+    failed: list[str]
+
+
+class TaskCreatedResponse(BaseModel):
+    task_id: str
+
+
+class TaskStatusResponse(BaseModel):
+    id: str
+    kind: str
+    status: str
+    total: int
+    completed: int
+    failed: int
+    done_titles: list[str]
+    failed_titles: list[str]
+    error: str | None = None
+
+
 # -- Search --
 
 
@@ -131,12 +153,15 @@ class ReferencesRequest(BaseModel):
     text: str
     limit: int = Field(default=5, ge=1, le=50)
     explain: bool = False
+    tag_ids: list[str] | None = None
+    group_id: str | None = None
 
 
 class ReferenceResult(BaseModel):
     paper: PaperSummary
     score: float
     explanation: str | None = None
+    stance: str | None = None
 
 
 class ReferencesResponse(BaseModel):
@@ -169,6 +194,59 @@ class TagPapersResponse(BaseModel):
 # -- Health --
 
 
+class EmbeddingStatusResponse(BaseModel):
+    total_papers: int
+    indexed_chunks: int
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str
+
+
+# -- Groups --
+
+
+class GroupCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class GroupPapersRequest(BaseModel):
+    paper_ids: list[str]
+
+
+class GroupResponse(BaseModel):
+    id: str
+    name: str
+    paper_count: int
+    created_at: datetime
+
+
+class GroupDetailResponse(GroupResponse):
+    papers: list[PaperSummary] = []
+
+
+class GroupListResponse(BaseModel):
+    groups: list[GroupResponse]
+
+
+# -- Saved Searches --
+
+
+class SaveSearchRequest(BaseModel):
+    text: str
+    group_id: str | None = None
+    results: list[ReferenceResult] | None = None
+
+
+class SavedSearchResponse(BaseModel):
+    id: str
+    text: str
+    group_id: str | None = None
+    group_name: str | None = None
+    results: list[ReferenceResult] | None = None
+    created_at: datetime
+
+
+class SavedSearchListResponse(BaseModel):
+    searches: list[SavedSearchResponse]

@@ -1,8 +1,6 @@
 """Shared fixtures for API tests."""
 
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,6 +89,7 @@ def mock_engine():
         "year": 2024,
         "doi": None,
         "citations_count": 0,
+        "indexed": True,
     }
     engine.summarize_paper = AsyncMock(return_value=_make_paper(
         ai_summary="Summary text",
@@ -101,15 +100,23 @@ def mock_engine():
     ))
     engine.tag_paper = AsyncMock(return_value=["ml", "nlp"])
     engine.find_references = AsyncMock(return_value=[
-        {"paper": _make_paper(), "score": 0.92, "explanation": None},
+        {"paper": _make_paper(), "score": 0.92, "explanation": None, "stance": None},
     ])
+    engine.embedding_status.return_value = {"total_papers": 1, "indexed_chunks": 5}
+    engine.backfill_embeddings.return_value = {"indexed": 1, "failed": 0}
+    engine.summarize_all = AsyncMock(return_value={"done": ["Paper A"], "failed": []})
+    engine.tag_all = AsyncMock(return_value={"done": ["Paper A", "Paper B"], "failed": ["Paper C"]})
     return engine
 
 
 @pytest.fixture
 def client(mock_engine):
+    from reflens.api.tasks import get_task_registry
+
     set_engine(mock_engine)
+    get_task_registry().clear()
     app = create_app()
     with TestClient(app) as c:
         yield c
     set_engine(None)
+    get_task_registry().clear()

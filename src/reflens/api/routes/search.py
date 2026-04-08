@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from reflens.api.deps import get_engine, get_user_id
 from reflens.api.routes.papers import _paper_to_summary
 from reflens.api.schemas import (
+    EmbeddingStatusResponse,
     ReferenceResult,
     ReferencesRequest,
     ReferencesResponse,
@@ -38,6 +39,23 @@ def search_papers(
     )
 
 
+@router.get("/embedding-status", response_model=EmbeddingStatusResponse)
+def embedding_status(
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    return EmbeddingStatusResponse(**engine.embedding_status(user_id))
+
+
+@router.post("/backfill-embeddings")
+def backfill_embeddings(
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    counts = engine.backfill_embeddings(user_id)
+    return counts
+
+
 @router.post("/references", response_model=ReferencesResponse)
 async def find_references(
     body: ReferencesRequest,
@@ -49,6 +67,8 @@ async def find_references(
         user_id=user_id,
         limit=body.limit,
         explain=body.explain,
+        tag_ids=body.tag_ids,
+        group_id=body.group_id,
     )
     return ReferencesResponse(
         results=[
@@ -56,6 +76,7 @@ async def find_references(
                 paper=_paper_to_summary(r["paper"]),
                 score=r["score"],
                 explanation=r.get("explanation"),
+                stance=r.get("stance"),
             )
             for r in results
         ],

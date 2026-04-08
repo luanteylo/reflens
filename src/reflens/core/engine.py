@@ -17,7 +17,9 @@ from reflens.db.models import Citation, Paper, ReadingStatus, UserNote
 from reflens.db.repositories import (
     AuthorRepository,
     CitationRepository,
+    GroupRepository,
     PaperRepository,
+    SavedSearchRepository,
     TagRepository,
     UserNoteRepository,
 )
@@ -96,6 +98,7 @@ class RefLensEngine:
             logger.info("Ingested paper: %s (id=%s)", paper.title, paper.id)
 
             # Index embeddings (non-fatal on error)
+            indexed = False
             try:
                 self.embedding_store.index_paper(
                     paper_id=paper.id,
@@ -104,6 +107,7 @@ class RefLensEngine:
                     sections=paper.sections,
                     full_text=paper.full_text,
                 )
+                indexed = True
             except Exception:
                 logger.warning("Failed to index embeddings for %s", paper.id, exc_info=True)
 
@@ -117,6 +121,7 @@ class RefLensEngine:
                 "source_file": paper.source_file,
                 "authors": [a.name for a in paper.authors],
                 "citations_count": len(paper.citing_refs),
+                "indexed": indexed,
             }
             return result
         except Exception:
@@ -280,7 +285,7 @@ class RefLensEngine:
                         repo = PaperRepository(session)
                         results = []
                         for pid in sorted(scored, key=scored.get, reverse=True):
-                            paper = repo.get_by_id(pid, user_id)
+                            paper = repo.get_with_relations(pid, user_id)
                             if paper:
                                 results.append({"paper": paper, "score": scored[pid]})
                             if len(results) >= limit:
@@ -306,6 +311,28 @@ class RefLensEngine:
         try:
             repo = PaperRepository(session)
             return repo.count(user_id)
+        finally:
+            session.close()
+
+    def list_papers_by_tags(
+        self,
+        tag_ids: list[str],
+        user_id: str = "local",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Paper]:
+        session = self._get_session()
+        try:
+            repo = PaperRepository(session)
+            return repo.list_by_tags(tag_ids, user_id, limit, offset)
+        finally:
+            session.close()
+
+    def count_papers_by_tags(self, tag_ids: list[str], user_id: str = "local") -> int:
+        session = self._get_session()
+        try:
+            repo = PaperRepository(session)
+            return repo.count_by_tags(tag_ids, user_id)
         finally:
             session.close()
 
@@ -432,6 +459,8 @@ class RefLensEngine:
         user_id: str = "local",
         limit: int = 5,
         explain: bool = False,
+        tag_ids: list[str] | None = None,
+        group_id: str | None = None,
     ) -> list[dict]:
         """Find papers that could serve as references for the given text.
 
@@ -453,20 +482,33 @@ class RefLensEngine:
         session = self._get_session()
         try:
             repo = PaperRepository(session)
+
+            if group_id:
+                group_repo = GroupRepository(session)
+                allowed = group_repo.get_paper_ids(group_id)
+                scored = {pid: s for pid, s in scored.items() if pid in allowed}
+
+            if tag_ids:
+                allowed = repo.get_paper_ids_by_tags(tag_ids, user_id)
+                scored = {pid: s for pid, s in scored.items() if pid in allowed}
+
             results = []
             for pid in sorted(scored, key=scored.get, reverse=True):
                 paper = repo.get_with_relations(pid, user_id)
                 if paper is None:
                     continue
                 explanation = None
+                stance = None
                 if explain:
                     try:
-                        explanation = await self.ai.explain_relevance(
+                        assessment = await self.ai.explain_relevance(
                             query=text,
                             paper_title=paper.title,
                             paper_abstract=paper.abstract or "",
                             paper_text=paper.full_text or "",
                         )
+                        explanation = assessment["explanation"]
+                        stance = assessment["stance"]
                     except Exception:
                         logger.warning(
                             "Failed to explain relevance for %s", pid, exc_info=True
@@ -475,12 +517,129 @@ class RefLensEngine:
                     "paper": paper,
                     "score": scored[pid],
                     "explanation": explanation,
+                    "stance": stance,
                 })
                 if len(results) >= limit:
                     break
             return results
         finally:
             session.close()
+
+    # -- Groups --
+
+    def create_group(self, name: str, user_id: str = "local") -> "PaperGroup":
+        from reflens.db.models import PaperGroup  # noqa: F811
+
+        session = self._get_session()
+        try:
+            repo = GroupRepository(session)
+            return repo.create(name, user_id)
+        finally:
+            session.close()
+
+    def list_groups(self, user_id: str = "local") -> list["PaperGroup"]:
+        session = self._get_session()
+        try:
+            repo = GroupRepository(session)
+            return repo.list_all(user_id)
+        finally:
+            session.close()
+
+    def get_group(self, group_id: str, user_id: str = "local") -> "PaperGroup | None":
+        session = self._get_session()
+        try:
+            repo = GroupRepository(session)
+            return repo.get_by_id(group_id, user_id)
+        finally:
+            session.close()
+
+    def delete_group(self, group_id: str, user_id: str = "local") -> bool:
+        session = self._get_session()
+        try:
+            repo = GroupRepository(session)
+            return repo.delete(group_id, user_id)
+        finally:
+            session.close()
+
+    def add_papers_to_group(
+        self, group_id: str, paper_ids: list[str], user_id: str = "local"
+    ) -> None:
+        session = self._get_session()
+        try:
+            repo = GroupRepository(session)
+            repo.add_papers(group_id, paper_ids)
+        finally:
+            session.close()
+
+    def remove_papers_from_group(
+        self, group_id: str, paper_ids: list[str], user_id: str = "local"
+    ) -> None:
+        session = self._get_session()
+        try:
+            repo = GroupRepository(session)
+            repo.remove_papers(group_id, paper_ids)
+        finally:
+            session.close()
+
+    # -- Saved Searches --
+
+    def save_search(
+        self,
+        text: str,
+        group_id: str | None = None,
+        results: list | None = None,
+        user_id: str = "local",
+    ) -> dict:
+        session = self._get_session()
+        try:
+            repo = SavedSearchRepository(session)
+            saved = repo.create(text, group_id, results, user_id)
+            return {
+                "id": saved.id,
+                "text": saved.text,
+                "group_id": saved.group_id,
+                "group_name": saved.group.name if saved.group else None,
+                "results": saved.results,
+                "created_at": saved.created_at,
+            }
+        finally:
+            session.close()
+
+    def list_saved_searches(self, user_id: str = "local") -> list[dict]:
+        session = self._get_session()
+        try:
+            repo = SavedSearchRepository(session)
+            searches = repo.list_all(user_id)
+            return [
+                {
+                    "id": s.id,
+                    "text": s.text,
+                    "group_id": s.group_id,
+                    "group_name": s.group.name if s.group else None,
+                    "results": s.results,
+                    "created_at": s.created_at,
+                }
+                for s in searches
+            ]
+        finally:
+            session.close()
+
+    def delete_saved_search(self, search_id: str, user_id: str = "local") -> bool:
+        session = self._get_session()
+        try:
+            repo = SavedSearchRepository(session)
+            return repo.delete(search_id, user_id)
+        finally:
+            session.close()
+
+    def embedding_status(self, user_id: str = "local") -> dict:
+        """Return embedding index stats vs paper count."""
+        total_papers = self.count_papers(user_id)
+        try:
+            total_chunks = self.embedding_store.count()
+        except Exception:
+            total_chunks = 0
+        return {"total_papers": total_papers, "indexed_chunks": total_chunks}
 
     def backfill_embeddings(self, user_id: str = "local") -> dict[str, int]:
         """Index embeddings for all existing papers. Returns counts."""

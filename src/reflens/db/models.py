@@ -4,7 +4,7 @@ All models include user_id for SaaS-readiness. In local mode a default user is u
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
@@ -20,7 +20,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-
 DEFAULT_USER_ID = "local"
 
 
@@ -29,7 +28,7 @@ def _uuid() -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -54,6 +53,17 @@ class PaperAuthor(Base):
         ForeignKey("authors.id", ondelete="CASCADE"), primary_key=True
     )
     position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PaperGroupMembership(Base):
+    __tablename__ = "paper_group_members"
+
+    paper_id: Mapped[str] = mapped_column(
+        ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("paper_groups.id", ondelete="CASCADE"), primary_key=True
+    )
 
 
 class PaperTag(Base):
@@ -187,3 +197,32 @@ class UserNote(Base):
     )
 
     paper: Mapped["Paper"] = relationship(back_populates="notes")
+
+
+class PaperGroup(Base):
+    __tablename__ = "paper_groups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    papers: Mapped[list["Paper"]] = relationship(
+        secondary="paper_group_members",
+        passive_deletes=True,
+    )
+
+
+class SavedSearch(Base):
+    __tablename__ = "saved_searches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+    text: Mapped[str] = mapped_column(Text)
+    group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("paper_groups.id", ondelete="SET NULL"), nullable=True
+    )
+    results: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    group: Mapped["PaperGroup | None"] = relationship(lazy="joined")

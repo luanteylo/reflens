@@ -94,6 +94,11 @@ export interface TagGenerateResponse {
   tags: string[];
 }
 
+export interface BulkActionResponse {
+  done: string[];
+  failed: string[];
+}
+
 export interface SearchResultItem {
   paper: PaperSummary;
   score: number | null;
@@ -108,12 +113,43 @@ export interface ReferencesRequest {
   text: string;
   limit?: number;
   explain?: boolean;
+  tag_ids?: string[];
+  group_id?: string;
+}
+
+export interface PaperGroup {
+  id: string;
+  name: string;
+  paper_count: number;
+  created_at: string;
+}
+
+export interface GroupListResponse {
+  groups: PaperGroup[];
+}
+
+export interface GroupDetailResponse extends PaperGroup {
+  papers: PaperSummary[];
+}
+
+export interface SavedSearch {
+  id: string;
+  text: string;
+  group_id: string | null;
+  group_name: string | null;
+  results: ReferenceResult[] | null;
+  created_at: string;
+}
+
+export interface SavedSearchListResponse {
+  searches: SavedSearch[];
 }
 
 export interface ReferenceResult {
   paper: PaperSummary;
   score: number;
   explanation: string | null;
+  stance: "supports" | "contradicts" | "neutral" | null;
 }
 
 export interface ReferencesResponse {
@@ -142,4 +178,20 @@ export interface NoteUpdateRequest {
   reading_status?: string;
   relevance_score?: number | null;
   is_favorite?: boolean;
+}
+
+export interface TaskCreatedResponse {
+  task_id: string;
+}
+
+export interface TaskStatusResponse {
+  id: string;
+  kind: string;
+  status: "pending" | "running" | "completed" | "failed";
+  total: number;
+  completed: number;
+  failed: number;
+  done_titles: string[];
+  failed_titles: string[];
+  error: string | null;
 }

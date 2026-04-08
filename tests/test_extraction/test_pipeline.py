@@ -1,7 +1,7 @@
 """Tests for the extraction pipeline."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

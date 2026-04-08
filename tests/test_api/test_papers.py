@@ -129,3 +129,31 @@ class TestUpdateNotes:
             json={"content": "notes"},
         )
         assert resp.status_code == 404
+
+
+class TestSummarizeAll:
+    def test_summarize_all_returns_task_id(self, client):
+        resp = client.post("/api/v1/papers/summarize-all")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "task_id" in data
+        assert len(data["task_id"]) > 0
+
+    def test_summarize_all_duplicate_returns_same_task(self, client):
+        from reflens.api.tasks import TaskStatus, get_task_registry
+
+        registry = get_task_registry()
+        task = registry.create("summarize-all")
+        task.status = TaskStatus.RUNNING
+
+        resp = client.post("/api/v1/papers/summarize-all")
+        assert resp.json()["task_id"] == task.id
+
+
+class TestTagAll:
+    def test_tag_all_returns_task_id(self, client):
+        resp = client.post("/api/v1/papers/tag-all")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "task_id" in data
+        assert len(data["task_id"]) > 0
