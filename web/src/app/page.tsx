@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check } from "lucide-react";
+import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useFindReferences } from "@/hooks/use-search";
-import type { ReferenceResult, PaperGroup, SavedSearch } from "@/lib/types";
+import { useFindReferences, useSearch } from "@/hooks/use-search";
+import type { ReferenceResult, SearchResultItem, PaperGroup, SavedSearch } from "@/lib/types";
 
 function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
   if (!stance) return null;
@@ -59,7 +59,8 @@ function CopyBibtexButton({ paperId }: { paperId: string }) {
   );
 }
 
-function ResultCard({ item }: { item: ReferenceResult }) {
+// AI-powered result card (with explanation + stance)
+function AIResultCard({ item }: { item: ReferenceResult }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
@@ -95,6 +96,79 @@ function ResultCard({ item }: { item: ReferenceResult }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Regular search result card (with abstract context)
+function SearchResultCard({ item }: { item: SearchResultItem }) {
+  const { paper } = item;
+  const authors = paper.authors.map((a) => a.name).join(", ");
+  const pct = item.score != null ? Math.round(item.score * 100) : null;
+
+  return (
+    <div className="max-w-2xl py-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {authors}
+        {paper.year ? ` · ${paper.year}` : ""}
+        {pct != null && <span className="text-primary">{pct}% relevance</span>}
+        <span className="text-border">|</span>
+        <CopyBibtexButton paperId={paper.id} />
+      </div>
+      <h3 className="text-lg text-primary mt-0.5 leading-snug">
+        {paper.title}
+      </h3>
+      {paper.abstract && (
+        <p className="text-sm text-foreground/70 mt-1 leading-relaxed line-clamp-3">
+          {paper.abstract}
+        </p>
+      )}
+      {paper.ai_summary && !paper.abstract && (
+        <p className="text-sm text-foreground/70 mt-1 leading-relaxed line-clamp-3">
+          {paper.ai_summary}
+        </p>
+      )}
+      {paper.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {paper.tags.map((t) => (
+            <span
+              key={t.id}
+              className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+            >
+              {t.tag_name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// AI toggle switch
+function AIToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!enabled)}
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors ${
+        enabled
+          ? "bg-purple-100 text-purple-700 border border-purple-200"
+          : "border border-border text-muted-foreground hover:text-foreground"
+      }`}
+      title={enabled ? "AI analysis enabled" : "AI analysis disabled"}
+    >
+      <Sparkles className={`h-3.5 w-3.5 ${enabled ? "text-purple-500" : ""}`} />
+      <span className="text-xs font-medium">AI</span>
+      <div
+        className={`relative h-4 w-7 rounded-full transition-colors ${
+          enabled ? "bg-purple-500" : "bg-border"
+        }`}
+      >
+        <div
+          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+            enabled ? "translate-x-3.5" : "translate-x-0.5"
+          }`}
+        />
+      </div>
+    </button>
   );
 }
 
@@ -196,11 +270,18 @@ export default function HomePage() {
   const [input, setInput] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<PaperGroup | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [cachedResults, setCachedResults] = useState<ReferenceResult[] | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const refMutation = useFindReferences();
   const qc = useQueryClient();
+
+  // Regular search (debounced via searchQuery)
+  const { data: regularSearchData, isLoading: regularSearchLoading } = useSearch(
+    !aiEnabled ? searchQuery : ""
+  );
 
   const { data: groupsData } = useQuery({
     queryKey: ["groups"],
@@ -239,12 +320,16 @@ export default function HomePage() {
     setHasSearched(true);
     setSaved(false);
     setCachedResults(null);
-    refMutation.mutate({
-      text: input.trim(),
-      limit: 10,
-      explain: true,
-      group_id: selectedGroup?.id,
-    });
+    if (aiEnabled) {
+      refMutation.mutate({
+        text: input.trim(),
+        limit: 10,
+        explain: true,
+        group_id: selectedGroup?.id,
+      });
+    } else {
+      setSearchQuery(input.trim());
+    }
   };
 
   const loadSavedSearch = (search: SavedSearch) => {
@@ -255,6 +340,7 @@ export default function HomePage() {
     setSelectedGroup(group);
     setHasSearched(true);
     setSaved(true);
+    setAiEnabled(true);
     if (search.results && search.results.length > 0) {
       setCachedResults(search.results);
     } else {
@@ -268,9 +354,12 @@ export default function HomePage() {
     }
   };
 
-  // Results: prefer cached, fallback to live mutation
-  const displayResults = cachedResults ?? refMutation.data?.results ?? null;
-  const isSearching = !cachedResults && refMutation.isPending;
+  // AI results
+  const aiResults = cachedResults ?? refMutation.data?.results ?? null;
+  const isAiSearching = !cachedResults && refMutation.isPending;
+
+  // Regular results
+  const regularResults = regularSearchData?.results ?? null;
 
   // Landing state: centered logo + search
   if (!hasSearched) {
@@ -286,22 +375,22 @@ export default function HomePage() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Paste a claim to find supporting (or contradicting) references..."
+              placeholder={
+                aiEnabled
+                  ? "Paste a claim to find supporting (or contradicting) references..."
+                  : "Search papers by title, content, or keywords..."
+              }
               className="w-full rounded-full border border-border bg-white px-12 py-3.5 text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               autoFocus
             />
           </div>
           <div className="flex items-center justify-center gap-3">
+            <AIToggle enabled={aiEnabled} onChange={setAiEnabled} />
             <GroupSelector
               groups={groups}
               selected={selectedGroup}
               onSelect={setSelectedGroup}
             />
-            <p className="text-xs text-muted-foreground">
-              {selectedGroup
-                ? `Searching in "${selectedGroup.name}"`
-                : "Searching all papers"}
-            </p>
           </div>
         </form>
 
@@ -340,7 +429,7 @@ export default function HomePage() {
     <div className="min-h-screen">
       {/* Top bar */}
       <div className="border-b border-border bg-white sticky top-0 z-10">
-        <div className="flex items-center gap-4 px-6 py-3 max-w-4xl">
+        <div className="flex items-center gap-3 px-6 py-3 max-w-4xl">
           <Link
             href="/"
             onClick={(e) => {
@@ -348,6 +437,8 @@ export default function HomePage() {
               setHasSearched(false);
               setInput("");
               setSaved(false);
+              setCachedResults(null);
+              setSearchQuery("");
             }}
             className="text-xl font-light tracking-tight text-foreground shrink-0"
           >
@@ -360,11 +451,13 @@ export default function HomePage() {
                 type="text"
                 value={input}
                 onChange={(e) => { setInput(e.target.value); setSaved(false); setCachedResults(null); }}
+                placeholder={aiEnabled ? "Paste a claim..." : "Search papers..."}
                 className="w-full rounded-full border border-border bg-white pl-10 pr-4 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 autoFocus
               />
             </div>
           </form>
+          <AIToggle enabled={aiEnabled} onChange={(v) => { setAiEnabled(v); setCachedResults(null); }} />
           <GroupSelector
             groups={groups}
             selected={selectedGroup}
@@ -381,54 +474,97 @@ export default function HomePage() {
 
       {/* Results */}
       <div className="px-6 py-4 max-w-4xl">
-        {isSearching && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Finding references...
-          </div>
-        )}
+        {/* AI mode */}
+        {aiEnabled && (
+          <>
+            {isAiSearching && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+                <Sparkles className="h-4 w-4 text-purple-500 animate-pulse" />
+                Analyzing with AI...
+              </div>
+            )}
 
-        {displayResults && displayResults.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-muted-foreground">
-                {displayResults.length} reference{displayResults.length !== 1 ? "s" : ""} found
-                {selectedGroup ? ` in "${selectedGroup.name}"` : ""}
+            {aiResults && aiResults.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-muted-foreground">
+                    <Sparkles className="h-3 w-3 text-purple-500 inline mr-1" />
+                    {aiResults.length} reference{aiResults.length !== 1 ? "s" : ""} found
+                    {selectedGroup ? ` in "${selectedGroup.name}"` : ""}
+                  </p>
+                  <button
+                    onClick={() => saveMutation.mutate({ text: input.trim(), groupId: selectedGroup?.id, results: aiResults })}
+                    disabled={saved || saveMutation.isPending}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      saved
+                        ? "text-primary"
+                        : saveError
+                          ? "border border-destructive text-destructive"
+                          : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <Bookmark className={`h-3 w-3 ${saved ? "fill-primary" : ""}`} />
+                    {saveMutation.isPending ? "Saving..." : saved ? "Saved" : saveError ? "Failed to save" : "Save search"}
+                  </button>
+                </div>
+                <div className="divide-y divide-border">
+                  {aiResults.map((item) => (
+                    <AIResultCard key={item.paper.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {aiResults && aiResults.length === 0 && (
+              <p className="text-sm text-muted-foreground py-8">
+                No matching references found. Try rephrasing your claim
+                {selectedGroup ? " or searching all papers." : "."}
               </p>
-              <button
-                onClick={() => saveMutation.mutate({ text: input.trim(), groupId: selectedGroup?.id, results: displayResults })}
-                disabled={saved || saveMutation.isPending}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  saved
-                    ? "text-primary"
-                    : saveError
-                      ? "border border-destructive text-destructive"
-                      : "border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
-                }`}
-              >
-                <Bookmark className={`h-3 w-3 ${saved ? "fill-primary" : ""}`} />
-                {saveMutation.isPending ? "Saving..." : saved ? "Saved" : saveError ? "Failed to save" : "Save search"}
-              </button>
-            </div>
-            <div className="divide-y divide-border">
-              {displayResults.map((item) => (
-                <ResultCard key={item.paper.id} item={item} />
-              ))}
-            </div>
-          </div>
+            )}
+
+            {refMutation.error && !cachedResults && (
+              <p className="text-sm text-destructive py-8">
+                Something went wrong. Please try again.
+              </p>
+            )}
+          </>
         )}
 
-        {displayResults && displayResults.length === 0 && (
-          <p className="text-sm text-muted-foreground py-8">
-            No matching references found. Try rephrasing your claim
-            {selectedGroup ? " or searching all papers." : "."}
-          </p>
-        )}
+        {/* Regular mode */}
+        {!aiEnabled && (
+          <>
+            {regularSearchLoading && searchQuery && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Searching...
+              </div>
+            )}
 
-        {refMutation.error && !cachedResults && (
-          <p className="text-sm text-destructive py-8">
-            Something went wrong. Please try again.
-          </p>
+            {regularResults && regularResults.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">
+                  {regularResults.length} result{regularResults.length !== 1 ? "s" : ""} for &quot;{regularSearchData?.query}&quot;
+                </p>
+                <div className="divide-y divide-border">
+                  {regularResults.map((item) => (
+                    <SearchResultCard key={item.paper.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {regularResults && regularResults.length === 0 && searchQuery && (
+              <p className="text-sm text-muted-foreground py-8">
+                No results for &quot;{searchQuery}&quot;. Try different keywords.
+              </p>
+            )}
+
+            {!searchQuery && (
+              <p className="text-sm text-muted-foreground py-8">
+                Type a query and press Enter to search your library.
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
