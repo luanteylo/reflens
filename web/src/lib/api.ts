@@ -32,6 +32,10 @@ function getBaseUrl(): string {
 
 const BASE = getBaseUrl();
 
+export function getPdfUrl(paperId: string): string {
+  return `${BASE}/papers/${paperId}/pdf`;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
@@ -108,8 +112,10 @@ export const api = {
       return request<TaskStatusResponse>(`/tasks/${taskId}`);
     },
   },
-  search(q: string) {
-    return request<SearchResponse>(`/search?q=${encodeURIComponent(q)}`);
+  search(q: string, groupId?: string) {
+    const params = new URLSearchParams({ q });
+    if (groupId) params.set("group_id", groupId);
+    return request<SearchResponse>(`/search?${params.toString()}`);
   },
   findReferences(body: ReferencesRequest) {
     return request<ReferencesResponse>("/search/references", {

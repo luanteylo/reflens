@@ -21,12 +21,13 @@ router = APIRouter(prefix="/search", tags=["search"])
 def search_papers(
     q: str = "",
     limit: int = 20,
+    group_id: str | None = None,
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
     if not q.strip():
         return SearchResponse(results=[], query=q)
-    results = engine.search_papers(q, user_id=user_id, limit=limit)
+    results = engine.search_papers(q, user_id=user_id, limit=limit, group_id=group_id)
     return SearchResponse(
         results=[
             SearchResultItem(

@@ -18,10 +18,11 @@ import {
   FolderOpen,
   FolderPlus,
   Plus,
+  FileText,
 } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getPdfUrl } from "@/lib/api";
 import { usePapers, useDeletePaper, useBulkAction } from "@/hooks/use-papers";
 import { useUpload } from "@/hooks/use-upload";
 import { useSearch } from "@/hooks/use-search";
@@ -523,6 +524,13 @@ function PaperRow({
             <p className="text-sm text-muted-foreground italic">No abstract available</p>
           )}
           <DoiField paper={paper} />
+          <button
+            onClick={() => window.open(getPdfUrl(paper.id), "_blank")}
+            className="inline-flex items-center gap-1 mt-2 text-xs text-primary hover:underline"
+          >
+            <FileText className="h-3 w-3" />
+            View PDF
+          </button>
           {paper.ai_summary && (
             <div className="mt-2 rounded-md bg-muted/50 p-3">
               <p className="text-xs font-medium text-muted-foreground mb-1">AI Summary</p>
@@ -851,11 +859,7 @@ export default function LibraryPage() {
                 paper={paper}
                 selected={selectedIds.has(paper.id)}
                 onToggle={() => toggleSelect(paper.id)}
-                onDelete={() => {
-                  if (confirm("Delete this paper?")) {
-                    deleteMutation.mutate(paper.id);
-                  }
-                }}
+                onDelete={() => deleteMutation.mutate(paper.id)}
               />
             ))}
           </div>

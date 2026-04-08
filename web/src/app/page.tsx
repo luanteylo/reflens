@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles } from "lucide-react";
+import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, getPdfUrl } from "@/lib/api";
 import { useFindReferences, useSearch } from "@/hooks/use-search";
 import type { ReferenceResult, SearchResultItem, PaperGroup, SavedSearch } from "@/lib/types";
 
@@ -86,7 +86,7 @@ function CopyBibtexButton({ paperId }: { paperId: string }) {
 }
 
 // AI-powered result card (with explanation + stance)
-function AIResultCard({ item }: { item: ReferenceResult }) {
+function AIResultCard({ item, onOpenPdf }: { item: ReferenceResult; onOpenPdf: (id: string, title: string) => void }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
@@ -100,6 +100,13 @@ function AIResultCard({ item }: { item: ReferenceResult }) {
         <StanceBadge stance={item.stance} />
         <span className="text-border">|</span>
         <CopyBibtexButton paperId={paper.id} />
+        <button
+          onClick={() => onOpenPdf(paper.id, paper.title)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <FileText className="h-3 w-3" />
+          PDF
+        </button>
       </div>
       <h3 className="text-lg text-primary mt-0.5 leading-snug">
         {paper.title}
@@ -126,7 +133,7 @@ function AIResultCard({ item }: { item: ReferenceResult }) {
 }
 
 // Regular search result card (with abstract context)
-function SearchResultCard({ item }: { item: SearchResultItem }) {
+function SearchResultCard({ item, onOpenPdf }: { item: SearchResultItem; onOpenPdf: (id: string, title: string) => void }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
@@ -139,6 +146,13 @@ function SearchResultCard({ item }: { item: SearchResultItem }) {
         {pct != null && <span className="text-primary">{pct}% relevance</span>}
         <span className="text-border">|</span>
         <CopyBibtexButton paperId={paper.id} />
+        <button
+          onClick={() => onOpenPdf(paper.id, paper.title)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <FileText className="h-3 w-3" />
+          PDF
+        </button>
       </div>
       <h3 className="text-lg text-primary mt-0.5 leading-snug">
         {paper.title}
@@ -296,10 +310,59 @@ function SavedSearchItem({
   );
 }
 
+function PdfViewer({
+  paperId,
+  title,
+  onClose,
+}: {
+  paperId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/60" onClick={onClose}>
+      <div
+        className="flex-1 flex flex-col m-4 md:m-8 rounded-lg overflow-hidden bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/50">
+          <p className="text-sm font-medium truncate flex-1 mr-4">{title}</p>
+          <div className="flex items-center gap-2">
+            <a
+              href={getPdfUrl(paperId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Open in new tab"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </a>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <iframe
+          src={getPdfUrl(paperId)}
+          className="flex-1 w-full"
+          title={title}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [input, setInput] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<PaperGroup | null>(null);
+  const [pdfViewer, setPdfViewer] = useState<{ id: string; title: string } | null>(null);
   const [aiEnabled, _setAiEnabled] = useState(true);
   const aiRef = useRef(true);
   const setAiEnabled = (v: boolean) => { aiRef.current = v; _setAiEnabled(v); };
@@ -320,7 +383,8 @@ export default function HomePage() {
 
   // Regular search
   const { data: regularSearchData, isLoading: regularSearchLoading } = useSearch(
-    !aiEnabled ? debouncedQuery : ""
+    !aiEnabled ? debouncedQuery : "",
+    selectedGroup?.id
   );
 
   const { data: groupsData } = useQuery({
@@ -561,7 +625,7 @@ export default function HomePage() {
                 </div>
                 <div className="divide-y divide-border">
                   {aiResults.map((item) => (
-                    <AIResultCard key={item.paper.id} item={item} />
+                    <AIResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} />
                   ))}
                 </div>
               </div>
@@ -599,7 +663,7 @@ export default function HomePage() {
                 </p>
                 <div className="divide-y divide-border">
                   {regularResults.map((item) => (
-                    <SearchResultCard key={item.paper.id} item={item} />
+                    <SearchResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} />
                   ))}
                 </div>
               </div>
@@ -619,6 +683,15 @@ export default function HomePage() {
           </>
         )}
       </div>
+
+      {/* PDF Viewer Modal */}
+      {pdfViewer && (
+        <PdfViewer
+          paperId={pdfViewer.id}
+          title={pdfViewer.title}
+          onClose={() => setPdfViewer(null)}
+        />
+      )}
     </div>
   );
 }

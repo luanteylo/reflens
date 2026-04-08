@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from reflens.api.deps import get_engine, get_user_id
@@ -256,6 +256,27 @@ async def get_bibtex(
 
     # Fallback: build from metadata
     return PlainTextResponse(_build_bibtex_from_metadata(paper))
+
+
+@router.get("/{paper_id}/pdf")
+def get_pdf(
+    paper_id: str,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    paper = engine.get_paper(paper_id, user_id=user_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if not paper.source_file:
+        raise HTTPException(status_code=404, detail="No PDF stored for this paper")
+    pdf_path = Path(paper.source_file)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 class PaperUpdateRequest(BaseModel):

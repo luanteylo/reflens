@@ -259,12 +259,27 @@ class RefLensEngine:
             session.close()
 
     def search_papers(
-        self, query: str, user_id: str = "local", limit: int = 20
+        self,
+        query: str,
+        user_id: str = "local",
+        limit: int = 20,
+        group_id: str | None = None,
     ) -> list[dict]:
         """Semantic search with SQL ILIKE fallback.
 
         Returns list of dicts with keys {"paper": Paper, "score": float | None}.
         """
+        allowed_ids: set[str] | None = None
+        if group_id:
+            session = self._get_session()
+            try:
+                group_repo = GroupRepository(session)
+                allowed_ids = group_repo.get_paper_ids(group_id)
+            finally:
+                session.close()
+            if not allowed_ids:
+                return []
+
         # Try semantic search first
         try:
             if self.embedding_store.is_available() and self.embedding_store.count() > 0:
@@ -279,6 +294,8 @@ class RefLensEngine:
                     scored = {
                         pid: 1.0 - (dist / 2.0) for pid, dist in best.items()
                     }
+                    if allowed_ids is not None:
+                        scored = {pid: s for pid, s in scored.items() if pid in allowed_ids}
                     # Load papers from DB and filter by user_id
                     session = self._get_session()
                     try:
@@ -302,6 +319,8 @@ class RefLensEngine:
         try:
             repo = PaperRepository(session)
             papers = repo.search_by_title(query, user_id)
+            if allowed_ids is not None:
+                papers = [p for p in papers if p.id in allowed_ids]
             return [{"paper": p, "score": None} for p in papers[:limit]]
         finally:
             session.close()
