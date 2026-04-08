@@ -1,10 +1,14 @@
 """Paper endpoints: CRUD, upload, summarize, tag, notes."""
 
 import asyncio
+import re
 import tempfile
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 
 from reflens.api.deps import get_engine, get_user_id
 from reflens.api.schemas import (
@@ -192,6 +196,92 @@ def get_paper(
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
     return _paper_to_detail(paper)
+
+
+def _make_bibtex_key(authors: list, year: int | None, title: str) -> str:
+    """Generate a BibTeX citation key like 'smith2024transformers'."""
+    first_author = ""
+    if authors:
+        name = authors[0].name if hasattr(authors[0], "name") else str(authors[0])
+        first_author = re.sub(r"[^a-zA-Z]", "", name.split()[-1]).lower()
+    yr = str(year) if year else ""
+    title_word = ""
+    for word in title.split():
+        cleaned = re.sub(r"[^a-zA-Z]", "", word).lower()
+        if len(cleaned) > 3:
+            title_word = cleaned
+            break
+    return f"{first_author}{yr}{title_word}" or "unknown"
+
+
+def _build_bibtex_from_metadata(paper) -> str:
+    """Build a basic BibTeX entry from paper metadata."""
+    key = _make_bibtex_key(paper.authors, paper.year, paper.title)
+    authors_str = " and ".join(a.name for a in paper.authors) if paper.authors else ""
+
+    lines = [f"@article{{{key},"]
+    lines.append(f"  title = {{{paper.title}}},")
+    if authors_str:
+        lines.append(f"  author = {{{authors_str}}},")
+    if paper.year:
+        lines.append(f"  year = {{{paper.year}}},")
+    if paper.doi:
+        lines.append(f"  doi = {{{paper.doi}}},")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+@router.get("/{paper_id}/bibtex", response_class=PlainTextResponse)
+async def get_bibtex(
+    paper_id: str,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    paper = engine.get_paper(paper_id, user_id=user_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Try fetching from doi.org if DOI is available
+    if paper.doi:
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                resp = await client.get(
+                    f"https://doi.org/{paper.doi}",
+                    headers={"Accept": "application/x-bibtex"},
+                )
+                if resp.status_code == 200 and "@" in resp.text:
+                    return PlainTextResponse(resp.text.strip())
+        except httpx.HTTPError:
+            pass
+
+    # Fallback: build from metadata
+    return PlainTextResponse(_build_bibtex_from_metadata(paper))
+
+
+class PaperUpdateRequest(BaseModel):
+    doi: str | None = None
+    year: int | None = None
+    title: str | None = None
+
+
+@router.patch("/{paper_id}", response_model=PaperSummary)
+def update_paper(
+    paper_id: str,
+    body: PaperUpdateRequest,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    paper = engine.get_paper(paper_id, user_id=user_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if body.doi is not None:
+        paper.doi = body.doi
+    if body.year is not None:
+        paper.year = body.year
+    if body.title is not None:
+        paper.title = body.title
+    engine.update_paper(paper)
+    return _paper_to_summary(paper)
 
 
 @router.delete("/{paper_id}", status_code=204)

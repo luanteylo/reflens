@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock } from "lucide-react";
+import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useFindReferences } from "@/hooks/use-search";
@@ -22,6 +22,43 @@ function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
   );
 }
 
+function CopyBibtexButton({ paperId }: { paperId: string }) {
+  const [state, setState] = useState<"idle" | "loading" | "copied">("idle");
+
+  const handleCopy = async () => {
+    setState("loading");
+    try {
+      const bibtex = await api.papers.bibtex(paperId);
+      await navigator.clipboard.writeText(bibtex);
+      setState("copied");
+      setTimeout(() => setState("idle"), 2000);
+    } catch {
+      setState("idle");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      disabled={state === "loading"}
+      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      title="Copy BibTeX"
+    >
+      {state === "copied" ? (
+        <>
+          <Check className="h-3 w-3 text-green-600" />
+          <span className="text-green-600">Copied</span>
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" />
+          BibTeX
+        </>
+      )}
+    </button>
+  );
+}
+
 function ResultCard({ item }: { item: ReferenceResult }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
@@ -34,6 +71,8 @@ function ResultCard({ item }: { item: ReferenceResult }) {
         {paper.year ? ` · ${paper.year}` : ""}
         {pct != null && <span className="text-primary">{pct}% match</span>}
         <StanceBadge stance={item.stance} />
+        <span className="text-border">|</span>
+        <CopyBibtexButton paperId={paper.id} />
       </div>
       <h3 className="text-lg text-primary mt-0.5 leading-snug">
         {paper.title}

@@ -439,6 +439,15 @@ class RefLensEngine:
         finally:
             session.close()
 
+    def update_paper(self, paper: Paper) -> Paper:
+        session = self._get_session()
+        try:
+            repo = PaperRepository(session)
+            merged = session.merge(paper)
+            return repo.update(merged)
+        finally:
+            session.close()
+
     def delete_paper(self, paper_id: str, user_id: str = "local") -> bool:
         session = self._get_session()
         try:

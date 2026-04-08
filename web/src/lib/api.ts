@@ -77,6 +77,18 @@ export const api = {
     citations(id: string) {
       return request<PaperDetail["citations"]>(`/papers/${id}/citations`);
     },
+    update(id: string, data: { doi?: string; year?: number; title?: string }) {
+      return request<PaperSummary>(`/papers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+    },
+    async bibtex(id: string): Promise<string> {
+      const res = await fetch(`${BASE}/papers/${id}/bibtex`);
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      return res.text();
+    },
     updateNotes(id: string, body: NoteUpdateRequest) {
       return request<UserNote>(`/papers/${id}/notes`, {
         method: "PUT",

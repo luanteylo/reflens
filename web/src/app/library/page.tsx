@@ -359,6 +359,79 @@ function UploadZone() {
   );
 }
 
+// Inline DOI editor
+function DoiField({ paper }: { paper: PaperSummary }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(paper.doi ?? "");
+  const [saved, setSaved] = useState(false);
+  const qc = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: (doi: string) => api.papers.update(paper.id, { doi: doi || undefined }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["papers"] });
+      qc.invalidateQueries({ queryKey: ["group-detail"] });
+      setSaved(true);
+      setEditing(false);
+      setTimeout(() => setSaved(false), 2000);
+    },
+  });
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-xs text-muted-foreground">DOI:</span>
+        {paper.doi ? (
+          <span className="text-xs text-foreground/70">{paper.doi}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground italic">not set</span>
+        )}
+        <button
+          onClick={() => { setValue(paper.doi ?? ""); setEditing(true); }}
+          className="text-xs text-primary hover:underline"
+        >
+          {paper.doi ? "edit" : "add"}
+        </button>
+        {saved && <span className="text-xs text-green-600">saved</span>}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        mutation.mutate(value.trim());
+      }}
+      className="flex items-center gap-2 mt-2"
+    >
+      <span className="text-xs text-muted-foreground">DOI:</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="10.1234/example"
+        className="flex-1 max-w-xs rounded border border-border bg-white px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+        autoFocus
+      />
+      <button
+        type="submit"
+        disabled={mutation.isPending}
+        className="text-xs text-primary hover:underline disabled:opacity-50"
+      >
+        {mutation.isPending ? "saving..." : "save"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        className="text-xs text-muted-foreground hover:text-foreground"
+      >
+        cancel
+      </button>
+    </form>
+  );
+}
+
 // Single paper row
 function PaperRow({
   paper,
@@ -442,6 +515,7 @@ function PaperRow({
           ) : (
             <p className="text-sm text-muted-foreground italic">No abstract available</p>
           )}
+          <DoiField paper={paper} />
           {paper.ai_summary && (
             <div className="mt-2 rounded-md bg-muted/50 p-3">
               <p className="text-xs font-medium text-muted-foreground mb-1">AI Summary</p>
