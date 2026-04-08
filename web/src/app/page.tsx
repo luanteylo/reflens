@@ -244,14 +244,25 @@ function AIToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boole
   );
 }
 
+function flattenCollections(cols: PaperCollection[], depth = 0): { col: PaperCollection; depth: number }[] {
+  const result: { col: PaperCollection; depth: number }[] = [];
+  for (const c of cols) {
+    result.push({ col: c, depth });
+    if (c.children) result.push(...flattenCollections(c.children, depth + 1));
+  }
+  return result;
+}
+
 function CollectionSelector({
   collections,
-  selected,
-  onSelect,
+  selectedIds,
+  onToggle,
+  onClear,
 }: {
   collections: PaperCollection[];
-  selected: PaperCollection | null;
-  onSelect: (collection: PaperCollection | null) => void;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -264,52 +275,64 @@ function CollectionSelector({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Flatten tree for dropdown
-  const flat: { col: PaperCollection; depth: number }[] = [];
-  const flatten = (cols: PaperCollection[], depth: number) => {
-    for (const c of cols) {
-      flat.push({ col: c, depth });
-      if (c.children) flatten(c.children, depth + 1);
-    }
-  };
-  flatten(collections, 0);
-
+  const flat = flattenCollections(collections);
   if (flat.length === 0) return null;
+
+  const selectedNames = flat
+    .filter(({ col }) => selectedIds.has(col.id))
+    .map(({ col }) => col.name);
+
+  const label = selectedNames.length === 0
+    ? "All papers"
+    : selectedNames.length <= 2
+      ? selectedNames.join(", ")
+      : `${selectedNames.length} collections`;
 
   return (
     <div ref={ref} className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-      >
-        <FolderOpen className="h-3.5 w-3.5" />
-        {selected ? selected.name : "All papers"}
-        <ChevronDown className="h-3 w-3" />
-      </button>
-
-      {open && (
-        <div className="absolute z-20 mt-1 min-w-[180px] rounded-lg border border-border bg-white shadow-lg overflow-hidden">
+      <div className="inline-flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors ${
+            selectedIds.size > 0
+              ? "bg-primary/10 text-primary border border-primary/20"
+              : "border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+          }`}
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+          {label}
+          <ChevronDown className="h-3 w-3" />
+        </button>
+        {selectedIds.size > 0 && (
           <button
             type="button"
-            onClick={() => { onSelect(null); setOpen(false); }}
-            className={`flex w-full items-center px-3 py-2 text-sm text-left hover:bg-muted transition-colors ${
-              !selected ? "font-medium text-foreground" : "text-muted-foreground"
-            }`}
+            onClick={onClear}
+            className="text-muted-foreground hover:text-foreground transition-colors"
           >
-            All papers
+            <X className="h-3.5 w-3.5" />
           </button>
+        )}
+      </div>
+
+      {open && (
+        <div className="absolute z-20 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
           {flat.map(({ col: c, depth }) => (
             <button
               type="button"
               key={c.id}
-              onClick={() => { onSelect(c); setOpen(false); }}
-              className={`flex w-full items-center justify-between py-2 text-sm text-left hover:bg-muted transition-colors ${
-                selected?.id === c.id ? "font-medium text-foreground" : "text-muted-foreground"
-              }`}
+              onClick={() => onToggle(c.id)}
+              className="flex w-full items-center gap-2 py-2 text-sm text-left hover:bg-muted transition-colors"
               style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: 12 }}
             >
-              <span>{c.name}</span>
+              <div className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                selectedIds.has(c.id)
+                  ? "border-primary bg-primary text-white"
+                  : "border-border"
+              }`}>
+                {selectedIds.has(c.id) && <Check className="h-2.5 w-2.5" />}
+              </div>
+              <span className="flex-1">{c.name}</span>
               <span className="text-xs opacity-60">{c.paper_count}</span>
             </button>
           ))}
@@ -403,7 +426,7 @@ function PdfViewer({
 export default function HomePage() {
   const [input, setInput] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
-  const [selectedCollection, setSelectedCollection] = useState<PaperCollection | null>(null);
+  const [selectedColIds, setSelectedColIds] = useState<Set<string>>(new Set());
   const [pdfViewer, setPdfViewer] = useState<{ id: string; title: string } | null>(null);
   const [aiEnabled, _setAiEnabled] = useState(true);
   const aiRef = useRef(true);
@@ -423,10 +446,12 @@ export default function HomePage() {
     }
   }, [input, aiEnabled, hasSearched]);
 
+  const activeColIds = selectedColIds.size > 0 ? Array.from(selectedColIds) : undefined;
+
   // Regular search
   const { data: regularSearchData, isLoading: regularSearchLoading } = useSearch(
     !aiEnabled ? debouncedQuery : "",
-    selectedCollection?.id
+    activeColIds
   );
 
   const { data: collectionsData } = useQuery({
@@ -440,8 +465,8 @@ export default function HomePage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: ({ text, collectionId, results }: { text: string; collectionId?: string; results?: ReferenceResult[] }) =>
-      api.savedSearches.save(text, collectionId, results),
+    mutationFn: ({ text, collectionIds, results }: { text: string; collectionIds?: string[]; results?: ReferenceResult[] }) =>
+      api.savedSearches.save(text, collectionIds, results),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["saved-searches"] });
       setSaved(true);
@@ -473,7 +498,7 @@ export default function HomePage() {
         text: input.trim(),
         limit: 10,
         explain: true,
-        collection_id: selectedCollection?.id,
+        collection_ids: activeColIds,
       });
     } else {
       refMutation.reset();
@@ -481,12 +506,17 @@ export default function HomePage() {
     }
   };
 
+  const toggleCollectionId = (id: string) => {
+    setSelectedColIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const loadSavedSearch = (search: SavedSearch) => {
     setInput(search.text);
-    const col = search.collection_id
-      ? collections.find((g) => g.id === search.collection_id) ?? null
-      : null;
-    setSelectedCollection(col);
+    setSelectedColIds(search.collection_id ? new Set([search.collection_id]) : new Set());
     setHasSearched(true);
     setSaved(true);
     setAiEnabled(true);
@@ -498,7 +528,7 @@ export default function HomePage() {
         text: search.text,
         limit: 10,
         explain: true,
-        collection_id: search.collection_id ?? undefined,
+        collection_ids: search.collection_id ? [search.collection_id] : undefined,
       });
     }
   };
@@ -537,8 +567,9 @@ export default function HomePage() {
             <AIToggle enabled={aiEnabled} onChange={setAiEnabled} />
             <CollectionSelector
               collections={collections}
-              selected={selectedCollection}
-              onSelect={setSelectedCollection}
+              selectedIds={selectedColIds}
+              onToggle={toggleCollectionId}
+              onClear={() => setSelectedColIds(new Set())}
             />
           </div>
         </form>
@@ -618,8 +649,9 @@ export default function HomePage() {
           }} />
           <CollectionSelector
             collections={collections}
-            selected={selectedCollection}
-            onSelect={setSelectedCollection}
+            selectedIds={selectedColIds}
+            onToggle={toggleCollectionId}
+            onClear={() => setSelectedColIds(new Set())}
           />
           <Link
             href="/library"
@@ -648,10 +680,10 @@ export default function HomePage() {
                   <p className="text-xs text-muted-foreground">
                     <Sparkles className="h-3 w-3 text-purple-500 inline mr-1" />
                     {aiResults.length} reference{aiResults.length !== 1 ? "s" : ""} found
-                    {selectedCollection ? ` in "${selectedCollection.name}"` : ""}
+                    {activeColIds ? ` in ${activeColIds.length} collection${activeColIds.length !== 1 ? "s" : ""}` : ""}
                   </p>
                   <button
-                    onClick={() => saveMutation.mutate({ text: input.trim(), collectionId: selectedCollection?.id, results: aiResults })}
+                    onClick={() => saveMutation.mutate({ text: input.trim(), collectionIds: activeColIds, results: aiResults })}
                     disabled={saved || saveMutation.isPending}
                     className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                       saved
@@ -676,7 +708,7 @@ export default function HomePage() {
             {aiResults && aiResults.length === 0 && (
               <p className="text-sm text-muted-foreground py-8">
                 No matching references found. Try rephrasing your claim
-                {selectedCollection ? " or searching all papers." : "."}
+                {activeColIds ? " or searching all papers." : "."}
               </p>
             )}
 

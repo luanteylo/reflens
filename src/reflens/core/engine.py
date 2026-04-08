@@ -258,25 +258,34 @@ class RefLensEngine:
         finally:
             session.close()
 
+    def _resolve_collection_paper_ids(
+        self, collection_ids: list[str]
+    ) -> set[str]:
+        """Get all paper IDs from one or more collections (recursive)."""
+        session = self._get_session()
+        try:
+            col_repo = CollectionRepository(session)
+            ids: set[str] = set()
+            for cid in collection_ids:
+                ids |= col_repo.get_paper_ids_recursive(cid)
+            return ids
+        finally:
+            session.close()
+
     def search_papers(
         self,
         query: str,
         user_id: str = "local",
         limit: int = 20,
-        collection_id: str | None = None,
+        collection_ids: list[str] | None = None,
     ) -> list[dict]:
         """Semantic search with SQL ILIKE fallback.
 
         Returns list of dicts with keys {"paper": Paper, "score": float | None}.
         """
         allowed_ids: set[str] | None = None
-        if collection_id:
-            session = self._get_session()
-            try:
-                col_repo = CollectionRepository(session)
-                allowed_ids = col_repo.get_paper_ids_recursive(collection_id)
-            finally:
-                session.close()
+        if collection_ids:
+            allowed_ids = self._resolve_collection_paper_ids(collection_ids)
             if not allowed_ids:
                 return []
 
@@ -488,7 +497,7 @@ class RefLensEngine:
         limit: int = 5,
         explain: bool = False,
         tag_ids: list[str] | None = None,
-        collection_id: str | None = None,
+        collection_ids: list[str] | None = None,
     ) -> list[dict]:
         """Find papers that could serve as references for the given text.
 
@@ -511,9 +520,8 @@ class RefLensEngine:
         try:
             repo = PaperRepository(session)
 
-            if collection_id:
-                col_repo = CollectionRepository(session)
-                allowed = col_repo.get_paper_ids_recursive(collection_id)
+            if collection_ids:
+                allowed = self._resolve_collection_paper_ids(collection_ids)
                 scored = {pid: s for pid, s in scored.items() if pid in allowed}
 
             if tag_ids:
@@ -591,12 +599,15 @@ class RefLensEngine:
             session.close()
 
     def _collection_to_dict(self, col) -> dict:
+        children = [self._collection_to_dict(c) for c in (col.children or [])]
+        own_count = len(col.papers) if col.papers else 0
+        total_count = own_count + sum(c["paper_count"] for c in children)
         return {
             "id": col.id,
             "name": col.name,
             "parent_id": col.parent_id,
-            "paper_count": len(col.papers) if col.papers else 0,
-            "children": [self._collection_to_dict(c) for c in (col.children or [])],
+            "paper_count": total_count,
+            "children": children,
             "created_at": col.created_at,
         }
 
@@ -618,9 +629,18 @@ class RefLensEngine:
             col = repo.get_by_id(col_id, user_id)
             if col is None:
                 return None
+            # Get all paper IDs recursively and load them
+            all_ids = repo.get_paper_ids_recursive(col_id)
+            papers = []
+            if all_ids:
+                paper_repo = PaperRepository(session)
+                for pid in all_ids:
+                    p = paper_repo.get_with_relations(pid, user_id)
+                    if p:
+                        papers.append(p)
             return {
                 **self._collection_to_dict(col),
-                "papers": col.papers,
+                "papers": papers,
             }
         finally:
             session.close()

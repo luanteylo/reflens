@@ -115,9 +115,11 @@ export const api = {
       return request<TaskStatusResponse>(`/tasks/${taskId}`);
     },
   },
-  search(q: string, groupId?: string) {
+  search(q: string, collectionIds?: string[]) {
     const params = new URLSearchParams({ q });
-    if (groupId) params.set("collection_id", groupId);
+    if (collectionIds) {
+      for (const id of collectionIds) params.append("collection_ids", id);
+    }
     return request<SearchResponse>(`/search?${params.toString()}`);
   },
   findReferences(body: ReferencesRequest) {
@@ -178,13 +180,13 @@ export const api = {
     list() {
       return request<SavedSearchListResponse>("/saved-searches");
     },
-    save(text: string, collectionId?: string, results?: unknown[]) {
+    save(text: string, collectionIds?: string[], results?: unknown[]) {
       return request<SavedSearch>("/saved-searches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          collection_id: collectionId ?? null,
+          collection_id: collectionIds?.[0] ?? null,
           results: results ?? null,
         }),
       });

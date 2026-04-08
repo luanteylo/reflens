@@ -114,7 +114,7 @@ export interface ReferencesRequest {
   limit?: number;
   explain?: boolean;
   tag_ids?: string[];
-  collection_id?: string;
+  collection_ids?: string[];
 }
 
 export interface PaperCollection {

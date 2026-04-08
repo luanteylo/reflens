@@ -1,6 +1,6 @@
 """Search and reference finder endpoints."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from reflens.api.deps import get_engine, get_user_id
 from reflens.api.routes.papers import _paper_to_summary
@@ -21,13 +21,15 @@ router = APIRouter(prefix="/search", tags=["search"])
 def search_papers(
     q: str = "",
     limit: int = 20,
-    collection_id: str | None = None,
+    collection_ids: list[str] | None = Query(None),
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
     if not q.strip():
         return SearchResponse(results=[], query=q)
-    results = engine.search_papers(q, user_id=user_id, limit=limit, collection_id=collection_id)
+    results = engine.search_papers(
+        q, user_id=user_id, limit=limit, collection_ids=collection_ids
+    )
     return SearchResponse(
         results=[
             SearchResultItem(
@@ -69,7 +71,7 @@ async def find_references(
         limit=body.limit,
         explain=body.explain,
         tag_ids=body.tag_ids,
-        collection_id=body.collection_id,
+        collection_ids=body.collection_ids,
     )
     return ReferencesResponse(
         results=[

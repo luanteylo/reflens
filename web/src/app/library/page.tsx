@@ -219,19 +219,26 @@ function CollectionActions({
         </div>
       )}
 
-      {open && (
-        <div className="absolute right-0 z-20 mt-1 min-w-[200px] rounded-lg border border-border bg-white shadow-lg">
-          {collections.map((g) => (
+      {open && (() => {
+        const flat: { col: PaperCollection; depth: number }[] = [];
+        const flatten = (cols: PaperCollection[], d: number) => {
+          for (const c of cols) { flat.push({ col: c, depth: d }); if (c.children) flatten(c.children, d + 1); }
+        };
+        flatten(collections, 0);
+        return (
+        <div className="absolute right-0 z-20 mt-1 min-w-[220px] max-h-64 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
+          {flat.map(({ col: c, depth }) => (
             <button
-              key={g.id}
+              key={c.id}
               onClick={() => {
-                addToCollection.mutate({ colId: g.id, paperIds: Array.from(selectedIds) });
+                addToCollection.mutate({ colId: c.id, paperIds: Array.from(selectedIds) });
                 setOpen(false);
               }}
-              className="flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted transition-colors"
+              className="flex w-full items-center justify-between py-2 text-sm text-left hover:bg-muted transition-colors"
+              style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: 12 }}
             >
-              <span>{g.name}</span>
-              <span className="text-xs text-muted-foreground">{g.paper_count}</span>
+              <span>{c.name}</span>
+              <span className="text-xs text-muted-foreground">{c.paper_count}</span>
             </button>
           ))}
 
@@ -275,7 +282,8 @@ function CollectionActions({
             </button>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -591,16 +599,25 @@ function PaperRow({
   selected,
   onToggle,
   onDelete,
+  draggable = true,
 }: {
   paper: PaperSummary;
   selected: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  draggable?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div
+      className="border-b border-border last:border-b-0"
+      draggable={draggable}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/reflens-papers", JSON.stringify([paper.id]));
+        e.dataTransfer.effectAllowed = "move";
+      }}
+    >
       <div className="flex items-center gap-3 py-3 px-1">
         <button
           onClick={onToggle}
@@ -730,64 +747,122 @@ function TaskProgress({
   );
 }
 
-// Group chips row
-function CollectionChips({
-  collections,
-  activeCollection,
+// Folder tree node
+function FolderNode({
+  col,
+  depth,
+  activeId,
   onSelect,
   onDelete,
+  onDrop,
 }: {
-  collections: PaperCollection[];
-  activeCollection: string | null;
+  col: PaperCollection;
+  depth: number;
+  activeId: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
+  onDrop: (paperIds: string[], colId: string) => void;
 }) {
-  // Flatten tree with path labels
-  const flat: { col: PaperCollection; label: string }[] = [];
-  const flatten = (cols: PaperCollection[], prefix: string) => {
-    for (const c of cols) {
-      const label = prefix ? `${prefix} / ${c.name}` : c.name;
-      flat.push({ col: c, label });
-      if (c.children) flatten(c.children, label);
-    }
-  };
-  flatten(collections, "");
-
-  if (flat.length === 0) return null;
+  const [expanded, setExpanded] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
+  const hasChildren = col.children && col.children.length > 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <FolderOpen className="h-4 w-4 text-muted-foreground" />
+    <div>
+      <div
+        className={`flex items-center gap-1 py-1 px-1 rounded-md cursor-pointer transition-colors ${
+          activeId === col.id
+            ? "bg-primary/10 text-primary"
+            : dragOver
+              ? "bg-primary/5 border border-primary/20"
+              : "hover:bg-muted text-muted-foreground hover:text-foreground"
+        }`}
+        style={{ paddingLeft: `${4 + depth * 16}px` }}
+        onClick={() => onSelect(col.id === activeId ? null : col.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (confirm(`Delete "${col.name}"? Papers won't be deleted.`)) onDelete(col.id);
+        }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const data = e.dataTransfer.getData("application/reflens-papers");
+          if (data) onDrop(JSON.parse(data), col.id);
+        }}
+      >
+        {hasChildren ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            className="shrink-0 p-0.5"
+          >
+            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        ) : (
+          <span className="w-4" />
+        )}
+        <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-xs font-medium truncate flex-1">{col.name}</span>
+        <span className="text-xs opacity-50">{col.paper_count}</span>
+      </div>
+      {expanded && hasChildren && (
+        <div>
+          {col.children.map((child) => (
+            <FolderNode
+              key={child.id}
+              col={child}
+              depth={depth + 1}
+              activeId={activeId}
+              onSelect={onSelect}
+              onDelete={onDelete}
+              onDrop={onDrop}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FolderTree({
+  collections,
+  activeId,
+  onSelect,
+  onDelete,
+  onDrop,
+}: {
+  collections: PaperCollection[];
+  activeId: string | null;
+  onSelect: (id: string | null) => void;
+  onDelete: (id: string) => void;
+  onDrop: (paperIds: string[], colId: string) => void;
+}) {
+  if (collections.length === 0) return null;
+
+  return (
+    <div className="space-y-0.5">
       <button
         onClick={() => onSelect(null)}
-        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-          !activeCollection
-            ? "bg-foreground text-background"
-            : "border border-border text-muted-foreground hover:text-foreground"
+        className={`flex items-center gap-1.5 w-full py-1 px-2 rounded-md text-xs font-medium transition-colors ${
+          !activeId
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted"
         }`}
       >
-        All
+        <FolderOpen className="h-3.5 w-3.5" />
+        All papers
       </button>
-      {flat.map(({ col: c, label }) => (
-        <button
-          key={c.id}
-          onClick={() => onSelect(c.id === activeCollection ? null : c.id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            if (confirm(`Delete collection "${c.name}"? Papers won't be deleted.`)) {
-              onDelete(c.id);
-            }
-          }}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            activeCollection === c.id
-              ? "bg-foreground text-background"
-              : "border border-border text-muted-foreground hover:text-foreground"
-          }`}
-          title={`${c.paper_count} papers (right-click to delete collection)`}
-        >
-          {label}
-          <span className="ml-1 opacity-60">{c.paper_count}</span>
-        </button>
+      {collections.map((col) => (
+        <FolderNode
+          key={col.id}
+          col={col}
+          depth={0}
+          activeId={activeId}
+          onSelect={onSelect}
+          onDelete={onDelete}
+          onDrop={onDrop}
+        />
       ))}
     </div>
   );
@@ -914,122 +989,135 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
         {/* Upload */}
         <UploadZone />
 
-        {/* Collections */}
-        {!isSearching && (
-          <CollectionChips
-            collections={collections}
-            activeCollection={activeCollection}
-            onSelect={(id) => {
-              setActiveCollection(id);
-              setSelectedTags([]);
-              setOffset(0);
-            }}
-            onDelete={(id) => deleteCollectionMutation.mutate(id)}
-          />
-        )}
+        <div className="flex gap-6">
+          {/* Folder tree sidebar */}
+          {collections.length > 0 && !isSearching && (
+            <div className="w-56 shrink-0">
+              <FolderTree
+                collections={collections}
+                activeId={activeCollection}
+                onSelect={(id) => {
+                  setActiveCollection(id);
+                  setSelectedTags([]);
+                  setOffset(0);
+                }}
+                onDelete={(id) => deleteCollectionMutation.mutate(id)}
+                onDrop={(paperIds, colId) => {
+                  api.collections.addPapers(colId, paperIds).then(() => {
+                    qc.invalidateQueries({ queryKey: ["collections"] });
+                    qc.invalidateQueries({ queryKey: ["collection-detail"] });
+                  });
+                }}
+              />
+            </div>
+          )}
 
-        {/* Tag selector */}
-        {tagsData && tagsData.tags.length > 0 && !isSearching && !isCollectionFiltering && (
-          <TagSelector
-            allTags={tagsData.tags}
-            selectedTags={selectedTags}
-            onToggle={toggleTag}
-            onClear={() => { setSelectedTags([]); setOffset(0); }}
-          />
-        )}
-
-        {/* Toolbar */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={toggleAll}
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                allSelected
-                  ? "border-primary bg-primary text-white"
-                  : "border-border hover:border-primary/50"
-              }`}
-            >
-              {allSelected && <Check className="h-3 w-3" />}
-            </button>
-            <span className="text-xs text-muted-foreground">
-              {selectedIds.size > 0
-                ? `${selectedIds.size} selected`
-                : `${isSearching ? (searchData?.results.length ?? 0) : isCollectionFiltering ? (collectionDetail?.papers.length ?? 0) : (papersData?.total ?? 0)} papers`}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <CollectionActions selectedIds={selectedIds} collections={collections} />
-
-            {selectedIds.size > 0 && (
-              <button
-                onClick={() => summarizeAll.trigger()}
-                disabled={summarizeAll.isPending || summarizeAll.isActive}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-              >
-                <Sparkles className="h-3 w-3" />
-                Summarize
-              </button>
-            )}
-            {(summarizeAll.taskId && summarizeAll.status) && (
-              <TaskProgress
-                label="Summarizing"
-                status={summarizeAll.status}
-                onDismiss={summarizeAll.dismiss}
+          {/* Main content */}
+          <div className="flex-1 min-w-0 space-y-4">
+            {/* Tag selector */}
+            {tagsData && tagsData.tags.length > 0 && !isSearching && !isCollectionFiltering && (
+              <TagSelector
+                allTags={tagsData.tags}
+                selectedTags={selectedTags}
+                onToggle={toggleTag}
+                onClear={() => { setSelectedTags([]); setOffset(0); }}
               />
             )}
-            {(tagAll.taskId && tagAll.status) && (
-              <TaskProgress
-                label="Tagging"
-                status={tagAll.status}
-                onDismiss={tagAll.dismiss}
+
+            {/* Toolbar */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={toggleAll}
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                    allSelected
+                      ? "border-primary bg-primary text-white"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                >
+                  {allSelected && <Check className="h-3 w-3" />}
+                </button>
+                <span className="text-xs text-muted-foreground">
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} selected`
+                    : `${isSearching ? (searchData?.results.length ?? 0) : isCollectionFiltering ? (collectionDetail?.papers.length ?? 0) : (papersData?.total ?? 0)} papers`}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <CollectionActions selectedIds={selectedIds} collections={collections} />
+
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={() => summarizeAll.trigger()}
+                    disabled={summarizeAll.isPending || summarizeAll.isActive}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Summarize
+                  </button>
+                )}
+                {(summarizeAll.taskId && summarizeAll.status) && (
+                  <TaskProgress
+                    label="Summarizing"
+                    status={summarizeAll.status}
+                    onDismiss={summarizeAll.dismiss}
+                  />
+                )}
+                {(tagAll.taskId && tagAll.status) && (
+                  <TaskProgress
+                    label="Tagging"
+                    status={tagAll.status}
+                    onDismiss={tagAll.dismiss}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Papers list */}
+            {isLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : displayPapers.length === 0 ? (
+              <p className="text-center py-12 text-sm text-muted-foreground">
+                {isSearching
+                  ? `No results for "${searchQuery}"`
+                  : isCollectionFiltering
+                    ? "No papers in this collection yet. Drag papers here."
+                    : selectedTags.length > 0
+                      ? "No papers match all selected tags."
+                      : "No papers yet. Upload a PDF to get started."}
+              </p>
+            ) : (
+              <div className="border-t border-border">
+                {displayPapers.map((paper) => (
+                  <PaperRow
+                    key={paper.id}
+                    paper={paper}
+                    selected={selectedIds.has(paper.id)}
+                    onToggle={() => toggleSelect(paper.id)}
+                    onDelete={() => deleteMutation.mutate(paper.id)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!isSearching && !isCollectionFiltering && papersData && (
+              <Pagination
+                total={papersData.total}
+                limit={papersData.limit}
+                offset={offset}
+                onPageChange={setOffset}
               />
             )}
           </div>
         </div>
-
-        {/* Papers list */}
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : displayPapers.length === 0 ? (
-          <p className="text-center py-12 text-sm text-muted-foreground">
-            {isSearching
-              ? `No results for "${searchQuery}"`
-              : isCollectionFiltering
-                ? "No papers in this group yet."
-                : selectedTags.length > 0
-                  ? "No papers match all selected tags."
-                  : "No papers yet. Upload a PDF to get started."}
-          </p>
-        ) : (
-          <div className="border-t border-border">
-            {displayPapers.map((paper) => (
-              <PaperRow
-                key={paper.id}
-                paper={paper}
-                selected={selectedIds.has(paper.id)}
-                onToggle={() => toggleSelect(paper.id)}
-                onDelete={() => deleteMutation.mutate(paper.id)}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Pagination (only for non-search, non-group views) */}
-        {!isSearching && !isCollectionFiltering && papersData && (
-          <Pagination
-            total={papersData.total}
-            limit={papersData.limit}
-            offset={offset}
-            onPageChange={setOffset}
-          />
-        )}
       </div>
     </div>
   );

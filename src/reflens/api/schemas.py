@@ -154,7 +154,7 @@ class ReferencesRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=50)
     explain: bool = False
     tag_ids: list[str] | None = None
-    collection_id: str | None = None
+    collection_ids: list[str] | None = None
 
 
 class ReferenceResult(BaseModel):
