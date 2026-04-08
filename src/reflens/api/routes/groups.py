@@ -23,15 +23,7 @@ def list_groups(
 ):
     groups = engine.list_groups(user_id=user_id)
     return GroupListResponse(
-        groups=[
-            GroupResponse(
-                id=g.id,
-                name=g.name,
-                paper_count=len(g.papers) if hasattr(g, "papers") and g.papers else 0,
-                created_at=g.created_at,
-            )
-            for g in groups
-        ]
+        groups=[GroupResponse(**g) for g in groups]
     )
 
 
@@ -41,13 +33,7 @@ def create_group(
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
-    group = engine.create_group(body.name, user_id=user_id)
-    return GroupResponse(
-        id=group.id,
-        name=group.name,
-        paper_count=0,
-        created_at=group.created_at,
-    )
+    return GroupResponse(**engine.create_group(body.name, user_id=user_id))
 
 
 @router.get("/{group_id}", response_model=GroupDetailResponse)
@@ -60,11 +46,11 @@ def get_group(
     if group is None:
         raise HTTPException(status_code=404, detail="Group not found")
     return GroupDetailResponse(
-        id=group.id,
-        name=group.name,
-        paper_count=len(group.papers),
-        created_at=group.created_at,
-        papers=[_paper_to_summary(p) for p in group.papers],
+        id=group["id"],
+        name=group["name"],
+        paper_count=group["paper_count"],
+        created_at=group["created_at"],
+        papers=[_paper_to_summary(p) for p in group["papers"]],
     )
 
 

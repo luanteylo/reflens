@@ -173,21 +173,27 @@ function GroupActions({
     },
   });
 
-  const createGroup = useMutation({
-    mutationFn: async ({ name, paperIds }: { name: string; paperIds: string[] }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleCreateGroup = async () => {
+    if (!newName.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    const paperIds = Array.from(selectedIds);
+    const name = newName.trim();
+    try {
       const group = await api.groups.create(name);
       await api.groups.addPapers(group.id, paperIds);
-      return group;
-    },
-    onSuccess: (group) => {
       qc.invalidateQueries({ queryKey: ["groups"] });
       qc.invalidateQueries({ queryKey: ["group-detail"] });
-      showToast(group.name, selectedIds.size);
+      showToast(group.name, paperIds.length);
       setNewName("");
       setCreating(false);
       setOpen(false);
-    },
-  });
+    } catch {
+      // ignore
+    }
+    setIsSubmitting(false);
+  };
 
   if (selectedIds.size === 0) return null;
 
@@ -233,7 +239,7 @@ function GroupActions({
               onSubmit={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (newName.trim()) createGroup.mutate({ name: newName.trim(), paperIds: Array.from(selectedIds) });
+                handleCreateGroup();
               }}
               className="flex items-center gap-1 px-3 py-2 border-t border-border"
             >
@@ -245,13 +251,14 @@ function GroupActions({
                 onMouseDown={(e) => e.stopPropagation()}
                 placeholder="Group name..."
                 className="flex-1 text-sm bg-transparent outline-none"
+                disabled={isSubmitting}
               />
               <button
                 type="submit"
-                disabled={!newName.trim() || createGroup.isPending}
+                disabled={!newName.trim() || isSubmitting}
                 className="text-primary disabled:opacity-30"
               >
-                <Check className="h-4 w-4" />
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               </button>
             </form>
           ) : (

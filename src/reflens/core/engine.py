@@ -536,29 +536,51 @@ class RefLensEngine:
 
     # -- Groups --
 
-    def create_group(self, name: str, user_id: str = "local") -> "PaperGroup":
-        from reflens.db.models import PaperGroup  # noqa: F811
-
+    def create_group(self, name: str, user_id: str = "local") -> dict:
         session = self._get_session()
         try:
             repo = GroupRepository(session)
-            return repo.create(name, user_id)
+            group = repo.create(name, user_id)
+            return {
+                "id": group.id,
+                "name": group.name,
+                "paper_count": 0,
+                "created_at": group.created_at,
+            }
         finally:
             session.close()
 
-    def list_groups(self, user_id: str = "local") -> list["PaperGroup"]:
+    def list_groups(self, user_id: str = "local") -> list[dict]:
         session = self._get_session()
         try:
             repo = GroupRepository(session)
-            return repo.list_all(user_id)
+            groups = repo.list_all(user_id)
+            return [
+                {
+                    "id": g.id,
+                    "name": g.name,
+                    "paper_count": len(g.papers) if g.papers else 0,
+                    "created_at": g.created_at,
+                }
+                for g in groups
+            ]
         finally:
             session.close()
 
-    def get_group(self, group_id: str, user_id: str = "local") -> "PaperGroup | None":
+    def get_group(self, group_id: str, user_id: str = "local") -> dict | None:
         session = self._get_session()
         try:
             repo = GroupRepository(session)
-            return repo.get_by_id(group_id, user_id)
+            group = repo.get_by_id(group_id, user_id)
+            if group is None:
+                return None
+            return {
+                "id": group.id,
+                "name": group.name,
+                "paper_count": len(group.papers),
+                "created_at": group.created_at,
+                "papers": group.papers,
+            }
         finally:
             session.close()
 

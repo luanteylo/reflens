@@ -23,39 +23,65 @@ function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
 }
 
 function CopyBibtexButton({ paperId }: { paperId: string }) {
-  const [state, setState] = useState<"idle" | "loading" | "copied">("idle");
+  const [bibtex, setBibtex] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const handleCopy = async () => {
-    setState("loading");
-    try {
-      const bibtex = await api.papers.bibtex(paperId);
-      await navigator.clipboard.writeText(bibtex);
-      setState("copied");
-      setTimeout(() => setState("idle"), 2000);
-    } catch {
-      setState("idle");
+  const handleClick = async () => {
+    if (bibtex) {
+      setBibtex(null);
+      return;
     }
+    setLoading(true);
+    try {
+      const text = await api.papers.bibtex(paperId);
+      setBibtex(text);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+    setLoading(false);
+  };
+
+  const handleCopyAgain = async () => {
+    if (!bibtex) return;
+    await navigator.clipboard.writeText(bibtex);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <button
-      onClick={handleCopy}
-      disabled={state === "loading"}
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      title="Copy BibTeX"
-    >
-      {state === "copied" ? (
-        <>
-          <Check className="h-3 w-3 text-green-600" />
-          <span className="text-green-600">Copied</span>
-        </>
-      ) : (
-        <>
-          <Copy className="h-3 w-3" />
-          BibTeX
-        </>
+    <span className="inline-flex flex-col">
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        title={bibtex ? "Hide BibTeX" : "Show & copy BibTeX"}
+      >
+        {copied ? (
+          <>
+            <Check className="h-3 w-3 text-green-600" />
+            <span className="text-green-600">Copied</span>
+          </>
+        ) : (
+          <>
+            <Copy className="h-3 w-3" />
+            BibTeX
+          </>
+        )}
+      </button>
+      {bibtex && (
+        <div
+          onClick={handleCopyAgain}
+          className="mt-2 max-w-2xl rounded-md bg-muted p-3 font-mono text-xs text-foreground/80 whitespace-pre-wrap cursor-pointer hover:bg-muted/80 transition-colors"
+          title="Click to copy"
+        >
+          {bibtex}
+        </div>
       )}
-    </button>
+    </span>
   );
 }
 
@@ -274,13 +300,21 @@ export default function HomePage() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [cachedResults, setCachedResults] = useState<ReferenceResult[] | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const refMutation = useFindReferences();
   const qc = useQueryClient();
 
-  // Regular search (debounced via searchQuery)
+  // Debounce input for regular search mode
+  useEffect(() => {
+    if (!aiEnabled && hasSearched) {
+      const timer = setTimeout(() => setDebouncedQuery(input.trim()), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [input, aiEnabled, hasSearched]);
+
+  // Regular search
   const { data: regularSearchData, isLoading: regularSearchLoading } = useSearch(
-    !aiEnabled ? searchQuery : ""
+    !aiEnabled ? debouncedQuery : ""
   );
 
   const { data: groupsData } = useQuery({
@@ -321,6 +355,7 @@ export default function HomePage() {
     setSaved(false);
     setCachedResults(null);
     if (aiEnabled) {
+      setDebouncedQuery("");
       refMutation.mutate({
         text: input.trim(),
         limit: 10,
@@ -328,7 +363,8 @@ export default function HomePage() {
         group_id: selectedGroup?.id,
       });
     } else {
-      setSearchQuery(input.trim());
+      refMutation.reset();
+      setDebouncedQuery(input.trim());
     }
   };
 
@@ -438,7 +474,7 @@ export default function HomePage() {
               setInput("");
               setSaved(false);
               setCachedResults(null);
-              setSearchQuery("");
+              setDebouncedQuery("");
             }}
             className="text-xl font-light tracking-tight text-foreground shrink-0"
           >
@@ -457,7 +493,16 @@ export default function HomePage() {
               />
             </div>
           </form>
-          <AIToggle enabled={aiEnabled} onChange={(v) => { setAiEnabled(v); setCachedResults(null); }} />
+          <AIToggle enabled={aiEnabled} onChange={(v) => {
+            setAiEnabled(v);
+            setCachedResults(null);
+            if (v) {
+              setDebouncedQuery("");
+            } else {
+              refMutation.reset();
+              if (input.trim()) setDebouncedQuery(input.trim());
+            }
+          }} />
           <GroupSelector
             groups={groups}
             selected={selectedGroup}
@@ -533,7 +578,7 @@ export default function HomePage() {
         {/* Regular mode */}
         {!aiEnabled && (
           <>
-            {regularSearchLoading && searchQuery && (
+            {regularSearchLoading && debouncedQuery && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Searching...
@@ -553,13 +598,13 @@ export default function HomePage() {
               </div>
             )}
 
-            {regularResults && regularResults.length === 0 && searchQuery && (
+            {regularResults && regularResults.length === 0 && debouncedQuery && (
               <p className="text-sm text-muted-foreground py-8">
-                No results for &quot;{searchQuery}&quot;. Try different keywords.
+                No results for &quot;{debouncedQuery}&quot;. Try different keywords.
               </p>
             )}
 
-            {!searchQuery && (
+            {!debouncedQuery && (
               <p className="text-sm text-muted-foreground py-8">
                 Type a query and press Enter to search your library.
               </p>
