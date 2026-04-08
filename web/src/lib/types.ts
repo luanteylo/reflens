@@ -114,29 +114,31 @@ export interface ReferencesRequest {
   limit?: number;
   explain?: boolean;
   tag_ids?: string[];
-  group_id?: string;
+  collection_id?: string;
 }
 
-export interface PaperGroup {
+export interface PaperCollection {
   id: string;
   name: string;
+  parent_id: string | null;
   paper_count: number;
+  children: PaperCollection[];
   created_at: string;
 }
 
-export interface GroupListResponse {
-  groups: PaperGroup[];
+export interface CollectionListResponse {
+  collections: PaperCollection[];
 }
 
-export interface GroupDetailResponse extends PaperGroup {
+export interface CollectionDetailResponse extends PaperCollection {
   papers: PaperSummary[];
 }
 
 export interface SavedSearch {
   id: string;
   text: string;
-  group_id: string | null;
-  group_name: string | null;
+  collection_id: string | null;
+  collection_name: string | null;
   results: ReferenceResult[] | null;
   created_at: string;
 }

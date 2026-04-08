@@ -1,10 +1,10 @@
 import type {
   AuthorListResponse,
-  GroupDetailResponse,
-  GroupListResponse,
+  CollectionDetailResponse,
+  CollectionListResponse,
   NoteUpdateRequest,
+  PaperCollection,
   PaperDetail,
-  PaperGroup,
   PaperListResponse,
   PaperSummary,
   PaperUploadResponse,
@@ -93,6 +93,9 @@ export const api = {
       if (!res.ok) throw new Error(`API ${res.status}`);
       return res.text();
     },
+    cite(id: string) {
+      return request<{ short: string; full: string; bibtex: string }>(`/papers/${id}/cite`);
+    },
     updateNotes(id: string, body: NoteUpdateRequest) {
       return request<UserNote>(`/papers/${id}/notes`, {
         method: "PUT",
@@ -114,7 +117,7 @@ export const api = {
   },
   search(q: string, groupId?: string) {
     const params = new URLSearchParams({ q });
-    if (groupId) params.set("group_id", groupId);
+    if (groupId) params.set("collection_id", groupId);
     return request<SearchResponse>(`/search?${params.toString()}`);
   },
   findReferences(body: ReferencesRequest) {
@@ -132,32 +135,39 @@ export const api = {
       return request<TagPapersResponse>(`/tags/${tagId}/papers`);
     },
   },
-  groups: {
+  collections: {
     list() {
-      return request<GroupListResponse>("/groups");
+      return request<CollectionListResponse>("/collections");
     },
     get(id: string) {
-      return request<GroupDetailResponse>(`/groups/${id}`);
+      return request<CollectionDetailResponse>(`/collections/${id}`);
     },
-    create(name: string) {
-      return request<PaperGroup>("/groups", {
+    create(name: string, parentId?: string) {
+      return request<PaperCollection>("/collections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, parent_id: parentId ?? null }),
+      });
+    },
+    getOrCreate(name: string, parentId?: string) {
+      return request<PaperCollection>("/collections/get-or-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parent_id: parentId ?? null }),
       });
     },
     delete(id: string) {
-      return request<void>(`/groups/${id}`, { method: "DELETE" });
+      return request<void>(`/collections/${id}`, { method: "DELETE" });
     },
-    addPapers(groupId: string, paperIds: string[]) {
-      return request<void>(`/groups/${groupId}/papers`, {
+    addPapers(colId: string, paperIds: string[]) {
+      return request<void>(`/collections/${colId}/papers`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paper_ids: paperIds }),
       });
     },
-    removePapers(groupId: string, paperIds: string[]) {
-      return request<void>(`/groups/${groupId}/papers`, {
+    removePapers(colId: string, paperIds: string[]) {
+      return request<void>(`/collections/${colId}/papers`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paper_ids: paperIds }),
@@ -168,13 +178,13 @@ export const api = {
     list() {
       return request<SavedSearchListResponse>("/saved-searches");
     },
-    save(text: string, groupId?: string, results?: unknown[]) {
+    save(text: string, collectionId?: string, results?: unknown[]) {
       return request<SavedSearch>("/saved-searches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          group_id: groupId ?? null,
+          collection_id: collectionId ?? null,
           results: results ?? null,
         }),
       });

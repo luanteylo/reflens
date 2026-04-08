@@ -154,7 +154,7 @@ class ReferencesRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=50)
     explain: bool = False
     tag_ids: list[str] | None = None
-    group_id: str | None = None
+    collection_id: str | None = None
 
 
 class ReferenceResult(BaseModel):
@@ -204,46 +204,20 @@ class HealthResponse(BaseModel):
     version: str
 
 
-# -- Groups --
-
-
-class GroupCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
-
-
-class GroupPapersRequest(BaseModel):
-    paper_ids: list[str]
-
-
-class GroupResponse(BaseModel):
-    id: str
-    name: str
-    paper_count: int
-    created_at: datetime
-
-
-class GroupDetailResponse(GroupResponse):
-    papers: list[PaperSummary] = []
-
-
-class GroupListResponse(BaseModel):
-    groups: list[GroupResponse]
-
-
 # -- Saved Searches --
 
 
 class SaveSearchRequest(BaseModel):
     text: str
-    group_id: str | None = None
+    collection_id: str | None = None
     results: list[ReferenceResult] | None = None
 
 
 class SavedSearchResponse(BaseModel):
     id: str
     text: str
-    group_id: str | None = None
-    group_name: str | None = None
+    collection_id: str | None = None
+    collection_name: str | None = None
     results: list[ReferenceResult] | None = None
     created_at: datetime
 

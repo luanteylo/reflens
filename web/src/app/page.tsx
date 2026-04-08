@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import Link from "next/link";
 import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
 import { useFindReferences, useSearch } from "@/hooks/use-search";
-import type { ReferenceResult, SearchResultItem, PaperGroup, SavedSearch } from "@/lib/types";
+import type { ReferenceResult, SearchResultItem, PaperCollection, SavedSearch } from "@/lib/types";
 
 function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
   if (!stance) return null;
@@ -22,74 +22,88 @@ function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
   );
 }
 
-function CopyBibtexButton({ paperId }: { paperId: string }) {
-  const [bibtex, setBibtex] = useState<string | null>(null);
+const CitePanel = forwardRef<{ toggle: () => void }, { paperId: string }>(function CitePanel({ paperId }, ref) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{ short: string; full: string; bibtex: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  const handleClick = async () => {
-    if (bibtex) {
-      setBibtex(null);
-      return;
+  const handleToggle = async () => {
+    if (open) { setOpen(false); return; }
+    setOpen(true);
+    if (!data) {
+      setLoading(true);
+      try {
+        const result = await api.papers.cite(paperId);
+        setData(result);
+      } catch { /* ignore */ }
+      setLoading(false);
     }
-    setLoading(true);
-    try {
-      const text = await api.papers.bibtex(paperId);
-      setBibtex(text);
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // ignore
-    }
-    setLoading(false);
   };
 
-  const handleCopyAgain = async () => {
-    if (!bibtex) return;
-    await navigator.clipboard.writeText(bibtex);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  useImperativeHandle(ref, () => ({ toggle: handleToggle }));
+
+  const copyText = async (text: string, field: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
   };
+
+  if (!open) return null;
 
   return (
-    <span className="inline-flex flex-col">
-      <button
-        onClick={handleClick}
-        disabled={loading}
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        title={bibtex ? "Hide BibTeX" : "Show & copy BibTeX"}
-      >
-        {copied ? (
-          <>
-            <Check className="h-3 w-3 text-green-600" />
-            <span className="text-green-600">Copied</span>
-          </>
-        ) : (
-          <>
-            <Copy className="h-3 w-3" />
-            BibTeX
-          </>
-        )}
-      </button>
-      {bibtex && (
-        <div
-          onClick={handleCopyAgain}
-          className="mt-2 max-w-2xl rounded-md bg-muted p-3 font-mono text-xs text-foreground/80 whitespace-pre-wrap cursor-pointer hover:bg-muted/80 transition-colors"
-          title="Click to copy"
-        >
-          {bibtex}
+    <div className="mt-2 max-w-2xl space-y-2">
+      {loading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Loading citations...
         </div>
       )}
-    </span>
+      {data && (
+        <>
+          <div
+            onClick={() => copyText(data.full, "full")}
+            className="rounded-md bg-muted/50 p-3 text-sm text-foreground/80 leading-relaxed cursor-pointer hover:bg-muted transition-colors"
+            title="Click to copy"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground">Reference</span>
+              {copiedField === "full" ? (
+                <span className="text-xs text-green-600 flex items-center gap-1"><Check className="h-3 w-3" />Copied</span>
+              ) : (
+                <span className="text-xs text-muted-foreground flex items-center gap-1"><Copy className="h-3 w-3" />Click to copy</span>
+              )}
+            </div>
+            <p className="whitespace-pre-wrap">{data.full}</p>
+          </div>
+
+          <div
+            onClick={() => copyText(data.bibtex, "bibtex")}
+            className="rounded-md bg-muted/50 p-3 font-mono text-xs text-foreground/80 cursor-pointer hover:bg-muted transition-colors"
+            title="Click to copy"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-muted-foreground font-sans">BibTeX</span>
+              {copiedField === "bibtex" ? (
+                <span className="text-xs text-green-600 flex items-center gap-1 font-sans"><Check className="h-3 w-3" />Copied</span>
+              ) : (
+                <span className="text-xs text-muted-foreground flex items-center gap-1 font-sans"><Copy className="h-3 w-3" />Click to copy</span>
+              )}
+            </div>
+            <pre className="whitespace-pre-wrap">{data.bibtex}</pre>
+          </div>
+        </>
+      )}
+    </div>
   );
-}
+});
 
 // AI-powered result card (with explanation + stance)
 function AIResultCard({ item, onOpenPdf }: { item: ReferenceResult; onOpenPdf: (id: string, title: string) => void }) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
+  const citePanelRef = useRef<{ toggle: () => void }>(null);
 
   return (
     <div className="max-w-2xl py-4">
@@ -98,15 +112,6 @@ function AIResultCard({ item, onOpenPdf }: { item: ReferenceResult; onOpenPdf: (
         {paper.year ? ` · ${paper.year}` : ""}
         {pct != null && <span className="text-primary">{pct}% match</span>}
         <StanceBadge stance={item.stance} />
-        <span className="text-border">|</span>
-        <CopyBibtexButton paperId={paper.id} />
-        <button
-          onClick={() => onOpenPdf(paper.id, paper.title)}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <FileText className="h-3 w-3" />
-          PDF
-        </button>
       </div>
       <h3 className="text-lg text-primary mt-0.5 leading-snug">
         {paper.title}
@@ -128,6 +133,23 @@ function AIResultCard({ item, onOpenPdf }: { item: ReferenceResult; onOpenPdf: (
           ))}
         </div>
       )}
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={() => citePanelRef.current?.toggle()}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Copy className="h-3 w-3" />
+          Cite
+        </button>
+        <button
+          onClick={() => onOpenPdf(paper.id, paper.title)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <FileText className="h-3 w-3" />
+          PDF
+        </button>
+      </div>
+      <CitePanel ref={citePanelRef} paperId={paper.id} />
     </div>
   );
 }
@@ -137,6 +159,7 @@ function SearchResultCard({ item, onOpenPdf }: { item: SearchResultItem; onOpenP
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
+  const citePanelRef = useRef<{ toggle: () => void }>(null);
 
   return (
     <div className="max-w-2xl py-4">
@@ -144,15 +167,6 @@ function SearchResultCard({ item, onOpenPdf }: { item: SearchResultItem; onOpenP
         {authors}
         {paper.year ? ` · ${paper.year}` : ""}
         {pct != null && <span className="text-primary">{pct}% relevance</span>}
-        <span className="text-border">|</span>
-        <CopyBibtexButton paperId={paper.id} />
-        <button
-          onClick={() => onOpenPdf(paper.id, paper.title)}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <FileText className="h-3 w-3" />
-          PDF
-        </button>
       </div>
       <h3 className="text-lg text-primary mt-0.5 leading-snug">
         {paper.title}
@@ -179,6 +193,23 @@ function SearchResultCard({ item, onOpenPdf }: { item: SearchResultItem; onOpenP
           ))}
         </div>
       )}
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={() => citePanelRef.current?.toggle()}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Copy className="h-3 w-3" />
+          Cite
+        </button>
+        <button
+          onClick={() => onOpenPdf(paper.id, paper.title)}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <FileText className="h-3 w-3" />
+          PDF
+        </button>
+      </div>
+      <CitePanel ref={citePanelRef} paperId={paper.id} />
     </div>
   );
 }
@@ -213,14 +244,14 @@ function AIToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boole
   );
 }
 
-function GroupSelector({
-  groups,
+function CollectionSelector({
+  collections,
   selected,
   onSelect,
 }: {
-  groups: PaperGroup[];
-  selected: PaperGroup | null;
-  onSelect: (group: PaperGroup | null) => void;
+  collections: PaperCollection[];
+  selected: PaperCollection | null;
+  onSelect: (collection: PaperCollection | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -233,7 +264,17 @@ function GroupSelector({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  if (groups.length === 0) return null;
+  // Flatten tree for dropdown
+  const flat: { col: PaperCollection; depth: number }[] = [];
+  const flatten = (cols: PaperCollection[], depth: number) => {
+    for (const c of cols) {
+      flat.push({ col: c, depth });
+      if (c.children) flatten(c.children, depth + 1);
+    }
+  };
+  flatten(collections, 0);
+
+  if (flat.length === 0) return null;
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -258,17 +299,18 @@ function GroupSelector({
           >
             All papers
           </button>
-          {groups.map((g) => (
+          {flat.map(({ col: c, depth }) => (
             <button
               type="button"
-              key={g.id}
-              onClick={() => { onSelect(g); setOpen(false); }}
-              className={`flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted transition-colors ${
-                selected?.id === g.id ? "font-medium text-foreground" : "text-muted-foreground"
+              key={c.id}
+              onClick={() => { onSelect(c); setOpen(false); }}
+              className={`flex w-full items-center justify-between py-2 text-sm text-left hover:bg-muted transition-colors ${
+                selected?.id === c.id ? "font-medium text-foreground" : "text-muted-foreground"
               }`}
+              style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: 12 }}
             >
-              <span>{g.name}</span>
-              <span className="text-xs opacity-60">{g.paper_count}</span>
+              <span>{c.name}</span>
+              <span className="text-xs opacity-60">{c.paper_count}</span>
             </button>
           ))}
         </div>
@@ -295,9 +337,9 @@ function SavedSearchItem({
       >
         <span className="line-clamp-1">{search.text}</span>
       </button>
-      {search.group_name && (
+      {search.collection_name && (
         <span className="text-xs text-muted-foreground/60 shrink-0">
-          {search.group_name}
+          {search.collection_name}
         </span>
       )}
       <button
@@ -361,7 +403,7 @@ function PdfViewer({
 export default function HomePage() {
   const [input, setInput] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<PaperGroup | null>(null);
+  const [selectedCollection, setSelectedCollection] = useState<PaperCollection | null>(null);
   const [pdfViewer, setPdfViewer] = useState<{ id: string; title: string } | null>(null);
   const [aiEnabled, _setAiEnabled] = useState(true);
   const aiRef = useRef(true);
@@ -384,12 +426,12 @@ export default function HomePage() {
   // Regular search
   const { data: regularSearchData, isLoading: regularSearchLoading } = useSearch(
     !aiEnabled ? debouncedQuery : "",
-    selectedGroup?.id
+    selectedCollection?.id
   );
 
-  const { data: groupsData } = useQuery({
-    queryKey: ["groups"],
-    queryFn: () => api.groups.list(),
+  const { data: collectionsData } = useQuery({
+    queryKey: ["collections"],
+    queryFn: () => api.collections.list(),
   });
 
   const { data: savedSearchesData } = useQuery({
@@ -398,8 +440,8 @@ export default function HomePage() {
   });
 
   const saveMutation = useMutation({
-    mutationFn: ({ text, groupId, results }: { text: string; groupId?: string; results?: ReferenceResult[] }) =>
-      api.savedSearches.save(text, groupId, results),
+    mutationFn: ({ text, collectionId, results }: { text: string; collectionId?: string; results?: ReferenceResult[] }) =>
+      api.savedSearches.save(text, collectionId, results),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["saved-searches"] });
       setSaved(true);
@@ -415,7 +457,7 @@ export default function HomePage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-searches"] }),
   });
 
-  const groups = groupsData?.groups ?? [];
+  const collections = collectionsData?.collections ?? [];
   const savedSearches = savedSearchesData?.searches ?? [];
 
   const handleSearch = (e: React.FormEvent) => {
@@ -431,7 +473,7 @@ export default function HomePage() {
         text: input.trim(),
         limit: 10,
         explain: true,
-        group_id: selectedGroup?.id,
+        collection_id: selectedCollection?.id,
       });
     } else {
       refMutation.reset();
@@ -441,10 +483,10 @@ export default function HomePage() {
 
   const loadSavedSearch = (search: SavedSearch) => {
     setInput(search.text);
-    const group = search.group_id
-      ? groups.find((g) => g.id === search.group_id) ?? null
+    const col = search.collection_id
+      ? collections.find((g) => g.id === search.collection_id) ?? null
       : null;
-    setSelectedGroup(group);
+    setSelectedCollection(col);
     setHasSearched(true);
     setSaved(true);
     setAiEnabled(true);
@@ -456,7 +498,7 @@ export default function HomePage() {
         text: search.text,
         limit: 10,
         explain: true,
-        group_id: search.group_id ?? undefined,
+        collection_id: search.collection_id ?? undefined,
       });
     }
   };
@@ -493,10 +535,10 @@ export default function HomePage() {
           </div>
           <div className="flex items-center justify-center gap-3">
             <AIToggle enabled={aiEnabled} onChange={setAiEnabled} />
-            <GroupSelector
-              groups={groups}
-              selected={selectedGroup}
-              onSelect={setSelectedGroup}
+            <CollectionSelector
+              collections={collections}
+              selected={selectedCollection}
+              onSelect={setSelectedCollection}
             />
           </div>
         </form>
@@ -574,10 +616,10 @@ export default function HomePage() {
               if (input.trim()) setDebouncedQuery(input.trim());
             }
           }} />
-          <GroupSelector
-            groups={groups}
-            selected={selectedGroup}
-            onSelect={setSelectedGroup}
+          <CollectionSelector
+            collections={collections}
+            selected={selectedCollection}
+            onSelect={setSelectedCollection}
           />
           <Link
             href="/library"
@@ -606,10 +648,10 @@ export default function HomePage() {
                   <p className="text-xs text-muted-foreground">
                     <Sparkles className="h-3 w-3 text-purple-500 inline mr-1" />
                     {aiResults.length} reference{aiResults.length !== 1 ? "s" : ""} found
-                    {selectedGroup ? ` in "${selectedGroup.name}"` : ""}
+                    {selectedCollection ? ` in "${selectedCollection.name}"` : ""}
                   </p>
                   <button
-                    onClick={() => saveMutation.mutate({ text: input.trim(), groupId: selectedGroup?.id, results: aiResults })}
+                    onClick={() => saveMutation.mutate({ text: input.trim(), collectionId: selectedCollection?.id, results: aiResults })}
                     disabled={saved || saveMutation.isPending}
                     className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                       saved
@@ -634,7 +676,7 @@ export default function HomePage() {
             {aiResults && aiResults.length === 0 && (
               <p className="text-sm text-muted-foreground py-8">
                 No matching references found. Try rephrasing your claim
-                {selectedGroup ? " or searching all papers." : "."}
+                {selectedCollection ? " or searching all papers." : "."}
               </p>
             )}
 

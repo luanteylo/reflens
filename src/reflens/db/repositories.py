@@ -8,8 +8,8 @@ from reflens.db.models import (
     Citation,
     Paper,
     PaperAuthor,
-    PaperGroup,
-    PaperGroupMembership,
+    PaperCollection,
+    PaperCollectionMembership,
     PaperTag,
     SavedSearch,
     Tag,
@@ -272,78 +272,110 @@ class UserNoteRepository:
         return note
 
 
-class GroupRepository:
+class CollectionRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def create(self, name: str, user_id: str = "local") -> PaperGroup:
-        group = PaperGroup(name=name, user_id=user_id)
-        self.session.add(group)
+    def create(
+        self, name: str, parent_id: str | None = None, user_id: str = "local"
+    ) -> PaperCollection:
+        col = PaperCollection(name=name, parent_id=parent_id, user_id=user_id)
+        self.session.add(col)
         self.session.commit()
-        return group
+        return col
 
-    def get_by_id(self, group_id: str, user_id: str = "local") -> PaperGroup | None:
+    def get_or_create(
+        self, name: str, parent_id: str | None = None, user_id: str = "local"
+    ) -> PaperCollection:
+        stmt = select(PaperCollection).where(
+            PaperCollection.name == name,
+            PaperCollection.parent_id == parent_id if parent_id else PaperCollection.parent_id.is_(None),
+            PaperCollection.user_id == user_id,
+        )
+        col = self.session.execute(stmt).scalar_one_or_none()
+        if col is None:
+            col = PaperCollection(name=name, parent_id=parent_id, user_id=user_id)
+            self.session.add(col)
+            self.session.commit()
+        return col
+
+    def get_by_id(self, col_id: str, user_id: str = "local") -> PaperCollection | None:
         stmt = (
-            select(PaperGroup)
-            .where(PaperGroup.id == group_id, PaperGroup.user_id == user_id)
+            select(PaperCollection)
+            .where(PaperCollection.id == col_id, PaperCollection.user_id == user_id)
             .options(
-                selectinload(PaperGroup.papers).selectinload(Paper.authors),
-                selectinload(PaperGroup.papers).selectinload(Paper.tags),
+                selectinload(PaperCollection.papers).selectinload(Paper.authors),
+                selectinload(PaperCollection.papers).selectinload(Paper.tags),
+                selectinload(PaperCollection.children),
             )
         )
         return self.session.execute(stmt).scalar_one_or_none()
 
-    def list_all(self, user_id: str = "local") -> list[PaperGroup]:
+    def list_all(self, user_id: str = "local") -> list[PaperCollection]:
         stmt = (
-            select(PaperGroup)
-            .where(PaperGroup.user_id == user_id)
-            .options(selectinload(PaperGroup.papers))
-            .order_by(PaperGroup.name)
+            select(PaperCollection)
+            .where(PaperCollection.user_id == user_id)
+            .options(
+                selectinload(PaperCollection.papers),
+                selectinload(PaperCollection.children),
+            )
+            .order_by(PaperCollection.name)
         )
         return list(self.session.execute(stmt).scalars().all())
 
-    def delete(self, group_id: str, user_id: str = "local") -> bool:
-        group = self.session.execute(
-            select(PaperGroup).where(
-                PaperGroup.id == group_id, PaperGroup.user_id == user_id
+    def delete(self, col_id: str, user_id: str = "local") -> bool:
+        col = self.session.execute(
+            select(PaperCollection).where(
+                PaperCollection.id == col_id, PaperCollection.user_id == user_id
             )
         ).scalar_one_or_none()
-        if group is None:
+        if col is None:
             return False
-        self.session.delete(group)
+        self.session.delete(col)
         self.session.commit()
         return True
 
-    def add_papers(self, group_id: str, paper_ids: list[str]) -> None:
+    def add_papers(self, col_id: str, paper_ids: list[str]) -> None:
         for pid in paper_ids:
             existing = self.session.execute(
-                select(PaperGroupMembership).where(
-                    PaperGroupMembership.group_id == group_id,
-                    PaperGroupMembership.paper_id == pid,
+                select(PaperCollectionMembership).where(
+                    PaperCollectionMembership.collection_id == col_id,
+                    PaperCollectionMembership.paper_id == pid,
                 )
             ).scalar_one_or_none()
             if not existing:
                 self.session.add(
-                    PaperGroupMembership(group_id=group_id, paper_id=pid)
+                    PaperCollectionMembership(collection_id=col_id, paper_id=pid)
                 )
         self.session.commit()
 
-    def remove_papers(self, group_id: str, paper_ids: list[str]) -> None:
+    def remove_papers(self, col_id: str, paper_ids: list[str]) -> None:
         stmt = (
-            PaperGroupMembership.__table__.delete()
+            PaperCollectionMembership.__table__.delete()
             .where(
-                PaperGroupMembership.group_id == group_id,
-                PaperGroupMembership.paper_id.in_(paper_ids),
+                PaperCollectionMembership.collection_id == col_id,
+                PaperCollectionMembership.paper_id.in_(paper_ids),
             )
         )
         self.session.execute(stmt)
         self.session.commit()
 
-    def get_paper_ids(self, group_id: str) -> set[str]:
-        stmt = select(PaperGroupMembership.paper_id).where(
-            PaperGroupMembership.group_id == group_id
+    def get_paper_ids(self, col_id: str) -> set[str]:
+        """Get paper IDs from this collection only."""
+        stmt = select(PaperCollectionMembership.paper_id).where(
+            PaperCollectionMembership.collection_id == col_id
         )
         return set(self.session.execute(stmt).scalars().all())
+
+    def get_paper_ids_recursive(self, col_id: str) -> set[str]:
+        """Get paper IDs from this collection and all sub-collections."""
+        ids = self.get_paper_ids(col_id)
+        # Get children
+        stmt = select(PaperCollection.id).where(PaperCollection.parent_id == col_id)
+        child_ids = list(self.session.execute(stmt).scalars().all())
+        for child_id in child_ids:
+            ids |= self.get_paper_ids_recursive(child_id)
+        return ids
 
 
 class SavedSearchRepository:
@@ -353,12 +385,12 @@ class SavedSearchRepository:
     def create(
         self,
         text: str,
-        group_id: str | None = None,
+        collection_id: str | None = None,
         results: list | None = None,
         user_id: str = "local",
     ) -> SavedSearch:
         saved = SavedSearch(
-            text=text, group_id=group_id, results=results, user_id=user_id
+            text=text, collection_id=collection_id, results=results, user_id=user_id
         )
         self.session.add(saved)
         self.session.commit()

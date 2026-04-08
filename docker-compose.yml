@@ -6,12 +6,30 @@ services:
     volumes:
       - ./storage:/app/storage
       - ./chroma_data:/app/chroma_data
+      - reflens-db:/app/data
     env_file:
       - .env
+    environment:
+      - REFLENS_DATABASE_URL=sqlite:///data/reflens.db
+      - REFLENS_STORAGE_PATH=/app/storage
+      - REFLENS_CHROMA_PATH=/app/chroma_data
+      - REFLENS_GROBID_URL=http://grobid:8070
     depends_on:
       - grobid
+
+  web:
+    build: ./web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - reflens
 
   grobid:
     image: lfoppiano/grobid:0.8.1
     ports:
       - "8070:8070"
+
+volumes:
+  reflens-db:

@@ -258,6 +258,93 @@ async def get_bibtex(
     return PlainTextResponse(_build_bibtex_from_metadata(paper))
 
 
+def _build_short_ref(paper) -> str:
+    """Build 'Adams et al., 2004' style short reference."""
+    if not paper.authors:
+        first = "Unknown"
+    elif len(paper.authors) == 1:
+        first = paper.authors[0].name.split()[-1]
+    elif len(paper.authors) == 2:
+        first = (
+            paper.authors[0].name.split()[-1]
+            + " and "
+            + paper.authors[1].name.split()[-1]
+        )
+    else:
+        first = paper.authors[0].name.split()[-1] + " et al."
+    year = str(paper.year) if paper.year else "n.d."
+    return f"{first}, {year}"
+
+
+def _build_full_ref(paper) -> str:
+    """Build a full text reference from metadata."""
+    parts = []
+    # Authors
+    if paper.authors:
+        names = []
+        for a in paper.authors:
+            name_parts = a.name.split()
+            if len(name_parts) >= 2:
+                initials = ".".join(p[0].upper() for p in name_parts[:-1]) + "."
+                names.append(f"{name_parts[-1]}, {initials}")
+            else:
+                names.append(a.name)
+        parts.append(", ".join(names))
+    # Year
+    if paper.year:
+        parts.append(f"({paper.year})")
+    # Title
+    parts.append(paper.title)
+    # DOI
+    if paper.doi:
+        parts.append(f"https://doi.org/{paper.doi}")
+    return "\n".join(parts)
+
+
+@router.get("/{paper_id}/cite")
+async def get_citation_formats(
+    paper_id: str,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    paper = engine.get_paper(paper_id, user_id=user_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    short_ref = _build_short_ref(paper)
+    bibtex = _build_bibtex_from_metadata(paper)
+    full_ref = _build_full_ref(paper)
+    apa = None
+
+    if paper.doi:
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+                # Fetch BibTeX
+                resp = await client.get(
+                    f"https://doi.org/{paper.doi}",
+                    headers={"Accept": "application/x-bibtex"},
+                )
+                if resp.status_code == 200 and "@" in resp.text:
+                    bibtex = resp.text.strip()
+
+                # Fetch APA
+                resp = await client.get(
+                    f"https://doi.org/{paper.doi}",
+                    headers={"Accept": "text/x-bibliography; style=apa"},
+                )
+                if resp.status_code == 200 and resp.text.strip():
+                    apa = resp.text.strip()
+        except httpx.HTTPError:
+            pass
+
+    result = {
+        "short": short_ref,
+        "full": apa or full_ref,
+        "bibtex": bibtex,
+    }
+    return result
+
+
 @router.get("/{paper_id}/pdf")
 def get_pdf(
     paper_id: str,

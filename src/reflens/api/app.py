@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from reflens import __version__
-from reflens.api.routes import authors, groups, papers, search, searches, tags, tasks
+from reflens.api.routes import authors, collections, papers, search, searches, tags, tasks
 from reflens.api.schemas import HealthResponse
 
 
@@ -16,6 +16,13 @@ def _cors_origins() -> list[str]:
     hostname = socket.gethostname()
     if hostname != "localhost":
         origins.append(f"http://{hostname}:3000")
+    # Allow access from any IP on the local network
+    try:
+        ip = socket.gethostbyname(hostname)
+        if ip != "127.0.0.1":
+            origins.append(f"http://{ip}:3000")
+    except socket.gaierror:
+        pass
     return origins
 
 
@@ -41,7 +48,7 @@ def create_app() -> FastAPI:
     v1.include_router(tags.router)
     v1.include_router(authors.router)
     v1.include_router(tasks.router)
-    v1.include_router(groups.router)
+    v1.include_router(collections.router)
     v1.include_router(searches.router)
 
     @v1.get("/health", response_model=HealthResponse, tags=["system"])

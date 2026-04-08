@@ -55,14 +55,14 @@ class PaperAuthor(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class PaperGroupMembership(Base):
-    __tablename__ = "paper_group_members"
+class PaperCollectionMembership(Base):
+    __tablename__ = "paper_collection_members"
 
     paper_id: Mapped[str] = mapped_column(
         ForeignKey("papers.id", ondelete="CASCADE"), primary_key=True
     )
-    group_id: Mapped[str] = mapped_column(
-        ForeignKey("paper_groups.id", ondelete="CASCADE"), primary_key=True
+    collection_id: Mapped[str] = mapped_column(
+        ForeignKey("paper_collections.id", ondelete="CASCADE"), primary_key=True
     )
 
 
@@ -199,17 +199,26 @@ class UserNote(Base):
     paper: Mapped["Paper"] = relationship(back_populates="notes")
 
 
-class PaperGroup(Base):
-    __tablename__ = "paper_groups"
+class PaperCollection(Base):
+    __tablename__ = "paper_collections"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
     name: Mapped[str] = mapped_column(String(255))
+    parent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("paper_collections.id", ondelete="CASCADE"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     papers: Mapped[list["Paper"]] = relationship(
-        secondary="paper_group_members",
+        secondary="paper_collection_members",
         passive_deletes=True,
+    )
+    children: Mapped[list["PaperCollection"]] = relationship(
+        back_populates="parent", cascade="all, delete-orphan"
+    )
+    parent: Mapped["PaperCollection | None"] = relationship(
+        back_populates="children", remote_side=[id]
     )
 
 
@@ -219,10 +228,10 @@ class SavedSearch(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
     text: Mapped[str] = mapped_column(Text)
-    group_id: Mapped[str | None] = mapped_column(
-        ForeignKey("paper_groups.id", ondelete="SET NULL"), nullable=True
+    collection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("paper_collections.id", ondelete="SET NULL"), nullable=True
     )
     results: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
-    group: Mapped["PaperGroup | None"] = relationship(lazy="joined")
+    collection: Mapped["PaperCollection | None"] = relationship(lazy="joined")

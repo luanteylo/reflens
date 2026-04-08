@@ -31,7 +31,10 @@ def init_db(settings: Settings | None = None) -> sessionmaker[Session]:
     if settings.database_url.startswith("sqlite"):
         event.listen(engine, "connect", _set_sqlite_pragma)
 
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.create_all(engine)
+    except Exception:
+        pass  # Tables may already exist from concurrent init
 
     _session_factory = sessionmaker(bind=engine)
     return _session_factory

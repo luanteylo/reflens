@@ -17,7 +17,7 @@ from reflens.db.models import Citation, Paper, ReadingStatus, UserNote
 from reflens.db.repositories import (
     AuthorRepository,
     CitationRepository,
-    GroupRepository,
+    CollectionRepository,
     PaperRepository,
     SavedSearchRepository,
     TagRepository,
@@ -263,18 +263,18 @@ class RefLensEngine:
         query: str,
         user_id: str = "local",
         limit: int = 20,
-        group_id: str | None = None,
+        collection_id: str | None = None,
     ) -> list[dict]:
         """Semantic search with SQL ILIKE fallback.
 
         Returns list of dicts with keys {"paper": Paper, "score": float | None}.
         """
         allowed_ids: set[str] | None = None
-        if group_id:
+        if collection_id:
             session = self._get_session()
             try:
-                group_repo = GroupRepository(session)
-                allowed_ids = group_repo.get_paper_ids(group_id)
+                col_repo = CollectionRepository(session)
+                allowed_ids = col_repo.get_paper_ids_recursive(collection_id)
             finally:
                 session.close()
             if not allowed_ids:
@@ -488,7 +488,7 @@ class RefLensEngine:
         limit: int = 5,
         explain: bool = False,
         tag_ids: list[str] | None = None,
-        group_id: str | None = None,
+        collection_id: str | None = None,
     ) -> list[dict]:
         """Find papers that could serve as references for the given text.
 
@@ -511,9 +511,9 @@ class RefLensEngine:
         try:
             repo = PaperRepository(session)
 
-            if group_id:
-                group_repo = GroupRepository(session)
-                allowed = group_repo.get_paper_ids(group_id)
+            if collection_id:
+                col_repo = CollectionRepository(session)
+                allowed = col_repo.get_paper_ids_recursive(collection_id)
                 scored = {pid: s for pid, s in scored.items() if pid in allowed}
 
             if tag_ids:
@@ -553,81 +553,103 @@ class RefLensEngine:
         finally:
             session.close()
 
-    # -- Groups --
+    # -- Collections --
 
-    def create_group(self, name: str, user_id: str = "local") -> dict:
+    def create_collection(
+        self, name: str, parent_id: str | None = None, user_id: str = "local"
+    ) -> dict:
         session = self._get_session()
         try:
-            repo = GroupRepository(session)
-            group = repo.create(name, user_id)
+            repo = CollectionRepository(session)
+            col = repo.create(name, parent_id, user_id)
             return {
-                "id": group.id,
-                "name": group.name,
+                "id": col.id,
+                "name": col.name,
+                "parent_id": col.parent_id,
                 "paper_count": 0,
-                "created_at": group.created_at,
+                "children": [],
+                "created_at": col.created_at,
             }
         finally:
             session.close()
 
-    def list_groups(self, user_id: str = "local") -> list[dict]:
+    def get_or_create_collection(
+        self, name: str, parent_id: str | None = None, user_id: str = "local"
+    ) -> dict:
         session = self._get_session()
         try:
-            repo = GroupRepository(session)
-            groups = repo.list_all(user_id)
-            return [
-                {
-                    "id": g.id,
-                    "name": g.name,
-                    "paper_count": len(g.papers) if g.papers else 0,
-                    "created_at": g.created_at,
-                }
-                for g in groups
-            ]
+            repo = CollectionRepository(session)
+            col = repo.get_or_create(name, parent_id, user_id)
+            return {
+                "id": col.id,
+                "name": col.name,
+                "parent_id": col.parent_id,
+                "paper_count": len(col.papers) if col.papers else 0,
+                "created_at": col.created_at,
+            }
         finally:
             session.close()
 
-    def get_group(self, group_id: str, user_id: str = "local") -> dict | None:
+    def _collection_to_dict(self, col) -> dict:
+        return {
+            "id": col.id,
+            "name": col.name,
+            "parent_id": col.parent_id,
+            "paper_count": len(col.papers) if col.papers else 0,
+            "children": [self._collection_to_dict(c) for c in (col.children or [])],
+            "created_at": col.created_at,
+        }
+
+    def list_collections(self, user_id: str = "local") -> list[dict]:
         session = self._get_session()
         try:
-            repo = GroupRepository(session)
-            group = repo.get_by_id(group_id, user_id)
-            if group is None:
+            repo = CollectionRepository(session)
+            cols = repo.list_all(user_id)
+            # Return only root collections (children are nested)
+            roots = [c for c in cols if c.parent_id is None]
+            return [self._collection_to_dict(c) for c in roots]
+        finally:
+            session.close()
+
+    def get_collection(self, col_id: str, user_id: str = "local") -> dict | None:
+        session = self._get_session()
+        try:
+            repo = CollectionRepository(session)
+            col = repo.get_by_id(col_id, user_id)
+            if col is None:
                 return None
             return {
-                "id": group.id,
-                "name": group.name,
-                "paper_count": len(group.papers),
-                "created_at": group.created_at,
-                "papers": group.papers,
+                **self._collection_to_dict(col),
+                "papers": col.papers,
             }
         finally:
             session.close()
 
-    def delete_group(self, group_id: str, user_id: str = "local") -> bool:
+    def delete_collection(self, col_id: str, user_id: str = "local") -> bool:
         session = self._get_session()
         try:
-            repo = GroupRepository(session)
-            return repo.delete(group_id, user_id)
+            repo = CollectionRepository(session)
+            return repo.delete(col_id, user_id)
         finally:
             session.close()
 
-    def add_papers_to_group(
-        self, group_id: str, paper_ids: list[str], user_id: str = "local"
+    def add_papers_to_collection(
+        self, col_id: str, paper_ids: list[str], user_id: str = "local"
     ) -> None:
         session = self._get_session()
         try:
-            repo = GroupRepository(session)
-            repo.add_papers(group_id, paper_ids)
+            repo = CollectionRepository(session)
+            repo.add_papers(col_id, paper_ids)
         finally:
             session.close()
 
-    def remove_papers_from_group(
-        self, group_id: str, paper_ids: list[str], user_id: str = "local"
+    def remove_papers_from_collection(
+        self, col_id: str, paper_ids: list[str], user_id: str = "local"
     ) -> None:
         session = self._get_session()
         try:
-            repo = GroupRepository(session)
-            repo.remove_papers(group_id, paper_ids)
+            repo = CollectionRepository(session)
+            repo.remove_papers(col_id, paper_ids)
         finally:
             session.close()
 
@@ -636,19 +658,19 @@ class RefLensEngine:
     def save_search(
         self,
         text: str,
-        group_id: str | None = None,
+        collection_id: str | None = None,
         results: list | None = None,
         user_id: str = "local",
     ) -> dict:
         session = self._get_session()
         try:
             repo = SavedSearchRepository(session)
-            saved = repo.create(text, group_id, results, user_id)
+            saved = repo.create(text, collection_id, results, user_id)
             return {
                 "id": saved.id,
                 "text": saved.text,
-                "group_id": saved.group_id,
-                "group_name": saved.group.name if saved.group else None,
+                "collection_id": saved.collection_id,
+                "collection_name": saved.collection.name if saved.collection else None,
                 "results": saved.results,
                 "created_at": saved.created_at,
             }
@@ -664,8 +686,8 @@ class RefLensEngine:
                 {
                     "id": s.id,
                     "text": s.text,
-                    "group_id": s.group_id,
-                    "group_name": s.group.name if s.group else None,
+                    "collection_id": s.collection_id,
+                    "collection_name": s.collection.name if s.collection else None,
                     "results": s.results,
                     "created_at": s.created_at,
                 }

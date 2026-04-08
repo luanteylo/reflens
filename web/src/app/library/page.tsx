@@ -20,14 +20,14 @@ import {
   Plus,
   FileText,
 } from "lucide-react";
-import { useDropzone } from "react-dropzone";
+// Folder upload uses native drag-and-drop API for directory traversal
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
 import { usePapers, useDeletePaper, useBulkAction } from "@/hooks/use-papers";
 import { useUpload } from "@/hooks/use-upload";
 import { useSearch } from "@/hooks/use-search";
 import { Pagination } from "@/components/shared/pagination";
-import type { PaperSummary, PaperUploadResponse, PaperGroup, Tag, TaskStatusResponse } from "@/lib/types";
+import type { PaperSummary, PaperUploadResponse, PaperCollection, Tag, TaskStatusResponse } from "@/lib/types";
 
 const PAGE_SIZE = 20;
 
@@ -122,12 +122,12 @@ function TagSelector({
 }
 
 // Group manager: dropdown to add selected papers to a group, or create new
-function GroupActions({
+function CollectionActions({
   selectedIds,
-  groups,
+  collections,
 }: {
   selectedIds: Set<string>;
-  groups: PaperGroup[];
+  collections: PaperCollection[];
 }) {
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -163,30 +163,30 @@ function GroupActions({
     setToast(`${count} paper${count !== 1 ? "s" : ""} added to "${groupName}"`);
   };
 
-  const addToGroup = useMutation({
-    mutationFn: ({ groupId, paperIds }: { groupId: string; paperIds: string[] }) =>
-      api.groups.addPapers(groupId, paperIds),
-    onSuccess: (_data, { groupId, paperIds }) => {
-      qc.invalidateQueries({ queryKey: ["groups"] });
-      qc.invalidateQueries({ queryKey: ["group-detail"] });
-      const group = groups.find((g) => g.id === groupId);
-      showToast(group?.name ?? "group", paperIds.length);
+  const addToCollection = useMutation({
+    mutationFn: ({ colId, paperIds }: { colId: string; paperIds: string[] }) =>
+      api.collections.addPapers(colId, paperIds),
+    onSuccess: (_data, { colId, paperIds }) => {
+      qc.invalidateQueries({ queryKey: ["collections"] });
+      qc.invalidateQueries({ queryKey: ["collection-detail"] });
+      const match = collections.find((g) => g.id === colId);
+      showToast(match?.name ?? "collection", paperIds.length);
     },
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleCreateGroup = async () => {
+  const handleCreateCollection = async () => {
     if (!newName.trim() || isSubmitting) return;
     setIsSubmitting(true);
     const paperIds = Array.from(selectedIds);
     const name = newName.trim();
     try {
-      const group = await api.groups.create(name);
-      await api.groups.addPapers(group.id, paperIds);
-      qc.invalidateQueries({ queryKey: ["groups"] });
-      qc.invalidateQueries({ queryKey: ["group-detail"] });
-      showToast(group.name, paperIds.length);
+      const col = await api.collections.create(name);
+      await api.collections.addPapers(col.id, paperIds);
+      qc.invalidateQueries({ queryKey: ["collections"] });
+      qc.invalidateQueries({ queryKey: ["collection-detail"] });
+      showToast(col?.name, paperIds.length);
       setNewName("");
       setCreating(false);
       setOpen(false);
@@ -205,7 +205,7 @@ function GroupActions({
         className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted transition-colors"
       >
         <FolderPlus className="h-3 w-3" />
-        Add to group
+        Add to collection
         <ChevronDown className="h-3 w-3" />
       </button>
 
@@ -221,11 +221,11 @@ function GroupActions({
 
       {open && (
         <div className="absolute right-0 z-20 mt-1 min-w-[200px] rounded-lg border border-border bg-white shadow-lg">
-          {groups.map((g) => (
+          {collections.map((g) => (
             <button
               key={g.id}
               onClick={() => {
-                addToGroup.mutate({ groupId: g.id, paperIds: Array.from(selectedIds) });
+                addToCollection.mutate({ colId: g.id, paperIds: Array.from(selectedIds) });
                 setOpen(false);
               }}
               className="flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted transition-colors"
@@ -240,7 +240,7 @@ function GroupActions({
               onSubmit={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                handleCreateGroup();
+                handleCreateCollection();
               }}
               className="flex items-center gap-1 px-3 py-2 border-t border-border"
             >
@@ -250,7 +250,7 @@ function GroupActions({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onMouseDown={(e) => e.stopPropagation()}
-                placeholder="Group name..."
+                placeholder="Collection name..."
                 className="flex-1 text-sm bg-transparent outline-none"
                 disabled={isSubmitting}
               />
@@ -271,7 +271,7 @@ function GroupActions({
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-left text-primary hover:bg-muted transition-colors border-t border-border"
             >
               <Plus className="h-3.5 w-3.5" />
-              New group
+              New collection
             </button>
           )}
         </div>
@@ -280,53 +280,193 @@ function GroupActions({
   );
 }
 
-// Upload area
+// Recursively read files from a dropped directory entry
+async function readEntries(entry: FileSystemEntry, path: string = ""): Promise<{ file: File; path: string }[]> {
+  if (entry.isFile) {
+    const fileEntry = entry as FileSystemFileEntry;
+    return new Promise((resolve) => {
+      fileEntry.file((f) => {
+        if (f.name.toLowerCase().endsWith(".pdf")) {
+          resolve([{ file: f, path }]);
+        } else {
+          resolve([]);
+        }
+      });
+    });
+  }
+  if (entry.isDirectory) {
+    const dirEntry = entry as FileSystemDirectoryEntry;
+    const reader = dirEntry.createReader();
+    const entries = await new Promise<FileSystemEntry[]>((resolve) => {
+      const all: FileSystemEntry[] = [];
+      const readBatch = () => {
+        reader.readEntries((batch) => {
+          if (batch.length === 0) { resolve(all); return; }
+          all.push(...batch);
+          readBatch();
+        });
+      };
+      readBatch();
+    });
+    const subPath = path ? `${path}/${entry.name}` : entry.name;
+    const results: { file: File; path: string }[] = [];
+    for (const e of entries) {
+      results.push(...(await readEntries(e, subPath)));
+    }
+    return results;
+  }
+  return [];
+}
+
+// Upload area with folder support
 function UploadZone() {
   const upload = useUpload();
   const [results, setResults] = useState<
-    { file: string; status: "success" | "error"; data?: PaperUploadResponse; error?: string }[]
+    { file: string; collection?: string; status: "success" | "error"; data?: PaperUploadResponse; error?: string }[]
   >([]);
   const [uploading, setUploading] = useState(false);
+  const [isDragActive, setIsDragActive] = useState(false);
+  const qc = useQueryClient();
 
-  const onDrop = useCallback(
-    async (acceptedFiles: File[]) => {
+  const processFiles = useCallback(
+    async (files: { file: File; path: string }[]) => {
       setUploading(true);
       const newResults: typeof results = [];
-      for (const file of acceptedFiles) {
-        try {
-          const data = await upload.mutateAsync(file);
-          newResults.push({ file: file.name, status: "success", data });
-        } catch (err) {
-          newResults.push({
-            file: file.name,
-            status: "error",
-            error: err instanceof Error ? err.message : "Upload failed",
-          });
+      // Group files by folder path for collection creation
+      const byPath = new Map<string, File[]>();
+      for (const { file, path } of files) {
+        const existing = byPath.get(path) || [];
+        existing.push(file);
+        byPath.set(path, existing);
+      }
+
+      // Resolve all unique folder paths to collection IDs upfront
+      const pathToColId = new Map<string, string>();
+      const allPaths = new Set(
+        Array.from(byPath.keys()).filter((p) => p.length > 0)
+      );
+      for (const folderPath of allPaths) {
+        const parts = folderPath.split("/");
+        let parentId: string | undefined;
+        for (let i = 0; i < parts.length; i++) {
+          const subPath = parts.slice(0, i + 1).join("/");
+          if (pathToColId.has(subPath)) {
+            parentId = pathToColId.get(subPath);
+          } else {
+            const col = await api.collections.getOrCreate(parts[i], parentId);
+            pathToColId.set(subPath, col.id);
+            parentId = col.id;
+          }
         }
       }
+
+      for (const [folderPath, folderFiles] of byPath) {
+        const colId = pathToColId.get(folderPath);
+
+        for (const file of folderFiles) {
+          try {
+            const data = await upload.mutateAsync(file);
+            if (colId) {
+              await api.collections.addPapers(colId, [data.id]);
+            }
+            newResults.push({
+              file: file.name,
+              collection: folderPath || undefined,
+              status: "success",
+              data,
+            });
+          } catch (err) {
+            newResults.push({
+              file: file.name,
+              collection: folderPath || undefined,
+              status: "error",
+              error: err instanceof Error ? err.message : "Upload failed",
+            });
+          }
+        }
+      }
+
       setResults((prev) => [...newResults, ...prev]);
       setUploading(false);
+      // Refresh collections if any folders were processed
+      const hadFolders = Array.from(byPath.keys()).some((p) => p.length > 0);
+      if (hadFolders) {
+        qc.invalidateQueries({ queryKey: ["collections"] });
+      }
     },
-    [upload]
+    [upload, qc]
   );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { "application/pdf": [".pdf"] },
-    disabled: uploading,
-  });
+  // Handle native drop to support folders
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragActive(false);
+      if (uploading) return;
+
+      const items = e.dataTransfer.items;
+      const allFiles: { file: File; path: string }[] = [];
+
+      if (items) {
+        const entries: FileSystemEntry[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const entry = items[i].webkitGetAsEntry?.();
+          if (entry) entries.push(entry);
+        }
+        for (const entry of entries) {
+          allFiles.push(...(await readEntries(entry)));
+        }
+      }
+
+      if (allFiles.length === 0) {
+        // Fallback: regular files
+        const files = Array.from(e.dataTransfer.files).filter((f) =>
+          f.name.toLowerCase().endsWith(".pdf")
+        );
+        for (const f of files) allFiles.push({ file: f, path: "" });
+      }
+
+      if (allFiles.length > 0) processFiles(allFiles);
+    },
+    [uploading, processFiles]
+  );
+
+  // Also support click-to-browse (files only)
+  const inputRef = useRef<HTMLInputElement>(null);
+  const handleFileInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []).filter((f) =>
+        f.name.toLowerCase().endsWith(".pdf")
+      );
+      if (files.length > 0) {
+        processFiles(files.map((f) => ({ file: f, path: "" })));
+      }
+      e.target.value = "";
+    },
+    [processFiles]
+  );
 
   return (
     <div className="space-y-3">
       <div
-        {...getRootProps()}
+        onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
+        onDragLeave={() => setIsDragActive(false)}
+        onDrop={handleDrop}
+        onClick={() => !uploading && inputRef.current?.click()}
         className={`flex items-center justify-center rounded-lg border-2 border-dashed py-8 px-6 transition-colors cursor-pointer ${
           isDragActive
             ? "border-primary bg-primary/5"
             : "border-border hover:border-primary/40"
         } ${uploading ? "opacity-50 cursor-not-allowed" : ""}`}
       >
-        <input {...getInputProps()} />
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".pdf"
+          multiple
+          className="hidden"
+          onChange={handleFileInput}
+        />
         {uploading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -339,7 +479,7 @@ function UploadZone() {
             ) : (
               <Upload className="h-5 w-5" />
             )}
-            <span>{isDragActive ? "Drop PDFs here" : "Drop PDFs here or click to browse"}</span>
+            <span>{isDragActive ? "Drop PDFs or folders here" : "Drop PDFs or folders here, or click to browse"}</span>
           </div>
         )}
       </div>
@@ -356,6 +496,11 @@ function UploadZone() {
               <span className="truncate">
                 {r.status === "success" ? r.data?.title : r.file}
               </span>
+              {r.collection && (
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {r.collection}
+                </span>
+              )}
               {r.status === "error" && (
                 <span className="text-xs text-destructive">{r.error}</span>
               )}
@@ -378,7 +523,7 @@ function DoiField({ paper }: { paper: PaperSummary }) {
     mutationFn: (doi: string) => api.papers.update(paper.id, { doi: doi || undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["papers"] });
-      qc.invalidateQueries({ queryKey: ["group-detail"] });
+      qc.invalidateQueries({ queryKey: ["collection-detail"] });
       setSaved(true);
       setEditing(false);
       setTimeout(() => setSaved(false), 2000);
@@ -586,18 +731,29 @@ function TaskProgress({
 }
 
 // Group chips row
-function GroupChips({
-  groups,
-  activeGroup,
+function CollectionChips({
+  collections,
+  activeCollection,
   onSelect,
   onDelete,
 }: {
-  groups: PaperGroup[];
-  activeGroup: string | null;
+  collections: PaperCollection[];
+  activeCollection: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
 }) {
-  if (groups.length === 0) return null;
+  // Flatten tree with path labels
+  const flat: { col: PaperCollection; label: string }[] = [];
+  const flatten = (cols: PaperCollection[], prefix: string) => {
+    for (const c of cols) {
+      const label = prefix ? `${prefix} / ${c.name}` : c.name;
+      flat.push({ col: c, label });
+      if (c.children) flatten(c.children, label);
+    }
+  };
+  flatten(collections, "");
+
+  if (flat.length === 0) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -605,32 +761,32 @@ function GroupChips({
       <button
         onClick={() => onSelect(null)}
         className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-          !activeGroup
+          !activeCollection
             ? "bg-foreground text-background"
             : "border border-border text-muted-foreground hover:text-foreground"
         }`}
       >
         All
       </button>
-      {groups.map((g) => (
+      {flat.map(({ col: c, label }) => (
         <button
-          key={g.id}
-          onClick={() => onSelect(g.id === activeGroup ? null : g.id)}
+          key={c.id}
+          onClick={() => onSelect(c.id === activeCollection ? null : c.id)}
           onContextMenu={(e) => {
             e.preventDefault();
-            if (confirm(`Delete group "${g.name}"? Papers won't be deleted.`)) {
-              onDelete(g.id);
+            if (confirm(`Delete collection "${c.name}"? Papers won't be deleted.`)) {
+              onDelete(c.id);
             }
           }}
           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            activeGroup === g.id
+            activeCollection === c.id
               ? "bg-foreground text-background"
               : "border border-border text-muted-foreground hover:text-foreground"
           }`}
-          title={`${g.paper_count} papers (right-click to delete group)`}
+          title={`${c.paper_count} papers (right-click to delete collection)`}
         >
-          {g.name}
-          <span className="ml-1 opacity-60">{g.paper_count}</span>
+          {label}
+          <span className="ml-1 opacity-60">{c.paper_count}</span>
         </button>
       ))}
     </div>
@@ -643,7 +799,7 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
-  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [activeCollection, setActiveCollection] = useState<string | null>(null);
   const qc = useQueryClient();
 
   // Debounce search
@@ -665,21 +821,21 @@ export default function LibraryPage() {
     queryKey: ["tags"],
     queryFn: () => api.tags.list(),
   });
-  const { data: groupsData } = useQuery({
-    queryKey: ["groups"],
-    queryFn: () => api.groups.list(),
+  const { data: collectionsData } = useQuery({
+    queryKey: ["collections"],
+    queryFn: () => api.collections.list(),
   });
-  const { data: groupDetail } = useQuery({
-    queryKey: ["group-detail", activeGroup],
-    queryFn: () => api.groups.get(activeGroup!),
-    enabled: !!activeGroup,
+  const { data: collectionDetail } = useQuery({
+    queryKey: ["collection-detail", activeCollection],
+    queryFn: () => api.collections.get(activeCollection!),
+    enabled: !!activeCollection,
   });
 
-  const deleteGroupMutation = useMutation({
-    mutationFn: (id: string) => api.groups.delete(id),
+  const deleteCollectionMutation = useMutation({
+    mutationFn: (id: string) => api.collections.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["groups"] });
-      if (activeGroup) setActiveGroup(null);
+      qc.invalidateQueries({ queryKey: ["collections"] });
+      if (activeCollection) setActiveCollection(null);
     },
   });
 
@@ -687,15 +843,15 @@ export default function LibraryPage() {
   const summarizeAll = useBulkAction("summarize-all");
   const tagAll = useBulkAction("tag-all");
 
-  const groups = groupsData?.groups ?? [];
+  const collections = collectionsData?.collections ?? [];
 
   // Determine which papers to show
   const isSearching = searchQuery.length > 0;
-  const isGroupFiltering = !!activeGroup;
+  const isCollectionFiltering = !!activeCollection;
   const displayPapers: PaperSummary[] = isSearching
     ? (searchData?.results.map((r) => r.paper) ?? [])
-    : isGroupFiltering
-      ? (groupDetail?.papers ?? [])
+    : isCollectionFiltering
+      ? (collectionDetail?.papers ?? [])
       : (papersData?.papers ?? []);
   const isLoading = isSearching ? loadingSearch : loadingPapers;
 
@@ -742,7 +898,7 @@ export default function LibraryPage() {
               value={searchInput}
               onChange={(e) => {
                 setSearchInput(e.target.value);
-                setActiveGroup(null);
+                setActiveCollection(null);
                 setOffset(0);
               }}
               placeholder="Search papers..."
@@ -762,22 +918,22 @@ export default function LibraryPage() {
         {/* Upload */}
         <UploadZone />
 
-        {/* Groups */}
+        {/* Collections */}
         {!isSearching && (
-          <GroupChips
-            groups={groups}
-            activeGroup={activeGroup}
+          <CollectionChips
+            collections={collections}
+            activeCollection={activeCollection}
             onSelect={(id) => {
-              setActiveGroup(id);
+              setActiveCollection(id);
               setSelectedTags([]);
               setOffset(0);
             }}
-            onDelete={(id) => deleteGroupMutation.mutate(id)}
+            onDelete={(id) => deleteCollectionMutation.mutate(id)}
           />
         )}
 
         {/* Tag selector */}
-        {tagsData && tagsData.tags.length > 0 && !isSearching && !isGroupFiltering && (
+        {tagsData && tagsData.tags.length > 0 && !isSearching && !isCollectionFiltering && (
           <TagSelector
             allTags={tagsData.tags}
             selectedTags={selectedTags}
@@ -802,12 +958,12 @@ export default function LibraryPage() {
             <span className="text-xs text-muted-foreground">
               {selectedIds.size > 0
                 ? `${selectedIds.size} selected`
-                : `${isSearching ? (searchData?.results.length ?? 0) : isGroupFiltering ? (groupDetail?.papers.length ?? 0) : (papersData?.total ?? 0)} papers`}
+                : `${isSearching ? (searchData?.results.length ?? 0) : isCollectionFiltering ? (collectionDetail?.papers.length ?? 0) : (papersData?.total ?? 0)} papers`}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            <GroupActions selectedIds={selectedIds} groups={groups} />
+            <CollectionActions selectedIds={selectedIds} collections={collections} />
 
             {selectedIds.size > 0 && (
               <button
@@ -845,7 +1001,7 @@ export default function LibraryPage() {
           <p className="text-center py-12 text-sm text-muted-foreground">
             {isSearching
               ? `No results for "${searchQuery}"`
-              : isGroupFiltering
+              : isCollectionFiltering
                 ? "No papers in this group yet."
                 : selectedTags.length > 0
                   ? "No papers match all selected tags."
@@ -866,7 +1022,7 @@ export default function LibraryPage() {
         )}
 
         {/* Pagination (only for non-search, non-group views) */}
-        {!isSearching && !isGroupFiltering && papersData && (
+        {!isSearching && !isCollectionFiltering && papersData && (
           <Pagination
             total={papersData.total}
             limit={papersData.limit}
