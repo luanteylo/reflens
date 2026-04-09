@@ -6,7 +6,7 @@ import re
 
 import anthropic
 
-from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary, ProviderProfile
+from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary, ProviderProfile, UsageInfo
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,19 @@ class ClaudeProvider(AIProvider):
         self.model = model
         self.profile = profile or ProviderProfile()
 
+    def _track_usage(self, response, operation: str) -> None:
+        if hasattr(response, "usage") and response.usage:
+            usage = UsageInfo(
+                provider="claude",
+                model=self.model,
+                operation=operation,
+                prompt_tokens=response.usage.input_tokens or 0,
+                completion_tokens=response.usage.output_tokens or 0,
+                total_tokens=(response.usage.input_tokens or 0) + (response.usage.output_tokens or 0),
+            )
+            usage.compute_cost()
+            self.last_usage = usage
+
     async def summarize(self, title: str, abstract: str, full_text: str) -> PaperSummary:
         if self.profile.use_compact_prompts:
             # For local models: use abstract only, compact prompt
@@ -204,6 +217,7 @@ class ClaudeProvider(AIProvider):
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
+        self._track_usage(response, "summarize")
         text = response.content[0].text
         data = json.loads(_extract_json(text))
 
@@ -250,6 +264,7 @@ class ClaudeProvider(AIProvider):
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text
+        self._track_usage(response, "tag")
         data = json.loads(_extract_json(text))
         return [
             GeneratedTag(
@@ -293,6 +308,7 @@ class ClaudeProvider(AIProvider):
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text
+        self._track_usage(response, "relevance")
         for attempt in [raw, _extract_json(raw)]:
             try:
                 data = json.loads(attempt)
@@ -326,6 +342,7 @@ class ClaudeProvider(AIProvider):
                 }
             ],
         )
+        self._track_usage(response, "claim_check")
         return response.content[0].text
 
     async def explain_relevance_batch(

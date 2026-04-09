@@ -108,6 +108,28 @@ export const api = {
   stats() {
     return request<{ papers: number; collections: number; storage_bytes: number; storage_mb: number }>("/health/stats");
   },
+  usage() {
+    return request<{
+      total_prompt_tokens: number;
+      total_completion_tokens: number;
+      total_tokens: number;
+      total_cost_usd: number;
+      total_requests: number;
+      by_model: { provider: string; model: string; prompt_tokens: number; completion_tokens: number; cost_usd: number; requests: number }[];
+    }>("/health/usage");
+  },
+  preferences: {
+    get() {
+      return request<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number }>("/preferences");
+    },
+    update(prefs: Partial<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number }>) {
+      return request<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number }>("/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prefs),
+      });
+    },
+  },
   papers: {
     list(limit = 50, offset = 0, tagIds?: string[]) {
       const params = new URLSearchParams();

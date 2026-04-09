@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,8 +13,11 @@ import {
   Trash2,
   Loader2,
   AlertTriangle,
+  Settings,
+  DollarSign,
+  Sliders,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/auth-context";
 
@@ -77,7 +80,7 @@ function ProfileSection() {
         )}
         {!authEnabled && (
           <p className="text-xs text-muted-foreground italic">
-            Running in local mode. Enable auth for multi-user support.
+            Running in local mode.
           </p>
         )}
       </div>
@@ -106,14 +109,11 @@ function SecuritySection() {
     try {
       const res = await api.auth.changePassword(currentPw, newPw);
       setMessage({ type: "success", text: res.message });
-      setCurrentPw("");
-      setNewPw("");
-      setConfirmPw("");
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to change password";
+      const msg = err instanceof Error ? err.message : "Failed";
       const match = msg.match(/API \d+: (.*)/);
-      const detail = match ? (JSON.parse(match[1])?.detail ?? msg) : msg;
-      setMessage({ type: "error", text: detail });
+      setMessage({ type: "error", text: match ? (JSON.parse(match[1])?.detail ?? msg) : msg });
     }
     setLoading(false);
   };
@@ -121,140 +121,245 @@ function SecuritySection() {
   return (
     <Section title="Security" icon={Shield}>
       <form onSubmit={handleChangePassword} className="space-y-3">
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Change Password
-        </h3>
-
         {message && (
-          <div
-            className={`rounded-lg px-3 py-2 text-sm ${
-              message.type === "success"
-                ? "border border-green-200 bg-green-50 text-green-800"
-                : "border border-destructive/30 bg-destructive/5 text-destructive"
-            }`}
-          >
-            {message.text}
-          </div>
+          <div className={`rounded-lg px-3 py-2 text-sm ${
+            message.type === "success"
+              ? "border border-green-200 bg-green-50 text-green-800"
+              : "border border-destructive/30 bg-destructive/5 text-destructive"
+          }`}>{message.text}</div>
         )}
-
-        <input
-          type="password"
-          value={currentPw}
-          onChange={(e) => setCurrentPw(e.target.value)}
-          placeholder="Current password"
-          required
-          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-        />
-        <input
-          type="password"
-          value={newPw}
-          onChange={(e) => setNewPw(e.target.value)}
-          placeholder="New password (min 8 chars, 1 letter + 1 digit)"
-          required
-          minLength={8}
-          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-        />
-        <input
-          type="password"
-          value={confirmPw}
-          onChange={(e) => setConfirmPw(e.target.value)}
-          placeholder="Confirm new password"
-          required
-          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-        />
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-        >
-          {loading ? (
-            <span className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Changing...
-            </span>
-          ) : (
-            "Change password"
-          )}
+        <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)}
+          placeholder="Current password" required
+          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)}
+          placeholder="New password (min 8 chars, 1 letter + 1 digit)" required minLength={8}
+          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)}
+          placeholder="Confirm new password" required
+          className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary" />
+        <button type="submit" disabled={loading}
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors">
+          {loading ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Changing...</span> : "Change password"}
         </button>
       </form>
     </Section>
   );
 }
 
-function AISection() {
-  const { data: aiInfo } = useQuery({
-    queryKey: ["ai-info"],
-    queryFn: () => api.aiInfo(),
-  });
+function PreferencesSection() {
+  const { data: aiInfo } = useQuery({ queryKey: ["ai-info"], queryFn: () => api.aiInfo() });
+  const { data: prefs, refetch } = useQuery({ queryKey: ["preferences"], queryFn: () => api.preferences.get() });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const models = aiInfo?.models ?? [];
-  if (models.length === 0) return null;
+
+  const handleUpdate = async (updates: Record<string, unknown>) => {
+    setSaving(true);
+    await api.preferences.update(updates);
+    await refetch();
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  if (!prefs) return null;
 
   return (
-    <Section title="AI Models" icon={Sparkles}>
-      <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">
-          Available models for search and summarization:
-        </p>
-        <div className="space-y-1.5">
-          {models.map((m) => (
-            <div
-              key={m.id}
-              className="flex items-center justify-between rounded-md border border-border px-3 py-2"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{m.model}</span>
-                {m.id === aiInfo?.default && (
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                    default
-                  </span>
-                )}
-              </div>
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs ${
-                  m.local
-                    ? "bg-green-50 text-green-700"
-                    : "bg-blue-50 text-blue-700"
-                }`}
-              >
-                {m.local ? "local" : m.provider}
-              </span>
-            </div>
-          ))}
+    <Section title="Search Preferences" icon={Sliders}>
+      <div className="space-y-4">
+        {/* Default model */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Default model</p>
+            <p className="text-xs text-muted-foreground">Used for AI search and summarization</p>
+          </div>
+          <select
+            value={prefs.default_model ?? ""}
+            onChange={(e) => handleUpdate({ default_model: e.target.value || null })}
+            className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">Server default</option>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>{m.model} ({m.local ? "local" : m.provider})</option>
+            ))}
+          </select>
         </div>
+
+        {/* Search limit */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Results per search</p>
+            <p className="text-xs text-muted-foreground">More results = slower with AI analysis</p>
+          </div>
+          <select
+            value={prefs.search_limit}
+            onChange={(e) => handleUpdate({ search_limit: parseInt(e.target.value) })}
+            className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            {[3, 5, 10, 15, 20].map((n) => (
+              <option key={n} value={n}>{n} results</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Explain by default */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">AI explanations</p>
+            <p className="text-xs text-muted-foreground">Generate stance analysis for each result</p>
+          </div>
+          <button
+            onClick={() => handleUpdate({ explain_by_default: !prefs.explain_by_default })}
+            className={`relative h-6 w-11 rounded-full transition-colors ${
+              prefs.explain_by_default ? "bg-primary" : "bg-border"
+            }`}
+          >
+            <div className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+              prefs.explain_by_default ? "translate-x-6" : "translate-x-1"
+            }`} />
+          </button>
+        </div>
+
+        {/* Context length */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Context length</p>
+            <p className="text-xs text-muted-foreground">Characters of paper text sent to AI</p>
+          </div>
+          <select
+            value={prefs.context_length}
+            onChange={(e) => handleUpdate({ context_length: parseInt(e.target.value) })}
+            className="rounded-lg border border-border bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value={2000}>2K (fast, less accurate)</option>
+            <option value={4000}>4K</option>
+            <option value={6000}>6K (default)</option>
+            <option value={10000}>10K</option>
+            <option value={20000}>20K (slow, more accurate)</option>
+            <option value={50000}>50K (cloud models only)</option>
+          </select>
+        </div>
+
+        {(saving || saved) && (
+          <p className={`text-xs ${saved ? "text-green-600" : "text-muted-foreground"}`}>
+            {saved ? "Saved" : "Saving..."}
+          </p>
+        )}
       </div>
     </Section>
   );
 }
 
-function StatsSection() {
-  const { data: stats } = useQuery({
-    queryKey: ["stats"],
-    queryFn: () => api.stats(),
-  });
+function AIModelsSection() {
+  const { data: aiInfo } = useQuery({ queryKey: ["ai-info"], queryFn: () => api.aiInfo() });
+  const models = aiInfo?.models ?? [];
+  if (models.length === 0) return null;
 
   return (
-    <Section title="Storage" icon={HardDrive}>
-      {stats ? (
-        <div className="grid grid-cols-3 gap-4">
-          <div className="text-center">
-            <p className="text-2xl font-semibold">{stats.papers}</p>
-            <p className="text-xs text-muted-foreground">Papers</p>
+    <Section title="AI Models" icon={Sparkles}>
+      <div className="space-y-1.5">
+        {models.map((m) => (
+          <div key={m.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">{m.model}</span>
+              {m.id === aiInfo?.default && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">default</span>
+              )}
+            </div>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${
+              m.local ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"
+            }`}>{m.local ? "local" : m.provider}</span>
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-semibold">{stats.collections}</p>
-            <p className="text-xs text-muted-foreground">Collections</p>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function UsageSection() {
+  const { data: usage } = useQuery({ queryKey: ["usage"], queryFn: () => api.usage() });
+  const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => api.stats() });
+
+  return (
+    <Section title="Usage & Storage" icon={DollarSign}>
+      <div className="space-y-4">
+        {/* Storage stats */}
+        {stats && (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-semibold">{stats.papers}</p>
+              <p className="text-xs text-muted-foreground">Papers</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-semibold">{stats.collections}</p>
+              <p className="text-xs text-muted-foreground">Collections</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-semibold">{stats.storage_mb}</p>
+              <p className="text-xs text-muted-foreground">MB stored</p>
+            </div>
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-semibold">{stats.storage_mb}</p>
-            <p className="text-xs text-muted-foreground">MB used</p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex justify-center py-4">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
+        )}
+
+        {/* Token usage */}
+        {usage && usage.total_requests > 0 && (
+          <>
+            <div className="border-t border-border pt-4">
+              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+                AI Token Usage
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-lg font-semibold">{usage.total_tokens.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">Total tokens</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">${usage.total_cost_usd.toFixed(4)}</p>
+                  <p className="text-xs text-muted-foreground">Estimated cost</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">{usage.total_requests}</p>
+                  <p className="text-xs text-muted-foreground">API requests</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">
+                    {usage.total_prompt_tokens.toLocaleString()} / {usage.total_completion_tokens.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Input / Output tokens</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Per-model breakdown */}
+            {usage.by_model.length > 0 && (
+              <div className="border-t border-border pt-4">
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                  By Model
+                </h3>
+                <div className="space-y-2">
+                  {usage.by_model.map((m) => (
+                    <div key={`${m.provider}/${m.model}`} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{m.model}</span>
+                        <span className="text-xs text-muted-foreground">{m.requests} calls</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>{(m.prompt_tokens + m.completion_tokens).toLocaleString()} tokens</span>
+                        {m.cost_usd > 0 && <span className="font-medium text-foreground">${m.cost_usd.toFixed(4)}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {usage && usage.total_requests === 0 && (
+          <p className="text-sm text-muted-foreground italic">No AI usage yet.</p>
+        )}
+      </div>
     </Section>
   );
 }
@@ -294,49 +399,29 @@ function DangerSection() {
       {authEnabled && (
         <>
           {!showConfirm ? (
-            <button
-              onClick={() => setShowConfirm(true)}
-              className="w-full rounded-lg border border-destructive/30 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/5 transition-colors"
-            >
+            <button onClick={() => setShowConfirm(true)}
+              className="w-full rounded-lg border border-destructive/30 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/5 transition-colors">
               <span className="flex items-center justify-center gap-2">
-                <Trash2 className="h-4 w-4" />
-                Delete account
+                <Trash2 className="h-4 w-4" />Delete account
               </span>
             </button>
           ) : (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
               <div className="flex items-center gap-2 text-sm text-destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <strong>This action is irreversible</strong>
+                <AlertTriangle className="h-4 w-4" /><strong>This action is irreversible</strong>
               </div>
-              <p className="text-xs text-muted-foreground">
-                All your papers, collections, and searches will be permanently deleted.
-                Enter your password to confirm.
-              </p>
-              {error && (
-                <p className="text-xs text-destructive">{error}</p>
-              )}
+              <p className="text-xs text-muted-foreground">All your papers, collections, and searches will be permanently deleted.</p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
               <form onSubmit={handleDelete} className="flex gap-2">
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Your password"
-                  required
-                  className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-destructive/30"
-                />
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-50 transition-colors"
-                >
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Your password" required
+                  className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-destructive/30" />
+                <button type="submit" disabled={loading}
+                  className="rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-50 transition-colors">
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowConfirm(false); setPassword(""); setError(null); }}
-                  className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted transition-colors"
-                >
+                <button type="button" onClick={() => { setShowConfirm(false); setPassword(""); setError(null); }}
+                  className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted transition-colors">
                   Cancel
                 </button>
               </form>
@@ -351,7 +436,6 @@ function DangerSection() {
 export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="border-b border-border bg-white sticky top-0 z-10">
         <div className="flex items-center gap-4 px-6 py-3 max-w-2xl mx-auto">
           <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
@@ -367,8 +451,9 @@ export default function SettingsPage() {
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
         <ProfileSection />
         <SecuritySection />
-        <AISection />
-        <StatsSection />
+        <PreferencesSection />
+        <AIModelsSection />
+        <UsageSection />
         <DangerSection />
       </div>
     </div>

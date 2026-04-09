@@ -16,7 +16,7 @@ from reflens.ai.claude import (
     TAGS_PROMPT_COMPACT,
     _extract_json,
 )
-from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary, ProviderProfile
+from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary, ProviderProfile, UsageInfo
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +36,24 @@ class OpenAIProvider(AIProvider):
         self.model = model
         self.profile = profile or ProviderProfile()
 
-    def _chat(self, prompt: str, max_tokens: int) -> str:
+    def _chat(self, prompt: str, max_tokens: int, operation: str = "") -> str:
         response = self.client.chat.completions.create(
             model=self.model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
+        # Capture usage
+        if response.usage:
+            usage = UsageInfo(
+                provider="ollama" if "localhost" in str(self.client.base_url) else "openai",
+                model=self.model,
+                operation=operation,
+                prompt_tokens=response.usage.prompt_tokens or 0,
+                completion_tokens=response.usage.completion_tokens or 0,
+                total_tokens=response.usage.total_tokens or 0,
+            )
+            usage.compute_cost()
+            self.last_usage = usage
         return response.choices[0].message.content or ""
 
     async def summarize(self, title: str, abstract: str, full_text: str) -> PaperSummary:
@@ -58,7 +70,7 @@ class OpenAIProvider(AIProvider):
             )
             max_tokens = 2000
 
-        text = self._chat(prompt, max_tokens)
+        text = self._chat(prompt, max_tokens, "summarize")
         data = json.loads(_extract_json(text))
 
         def _as_str(value: str | list, sep: str = "\n") -> str:
@@ -97,7 +109,7 @@ class OpenAIProvider(AIProvider):
             )
             max_tokens = 1000
 
-        text = self._chat(prompt, max_tokens)
+        text = self._chat(prompt, max_tokens, "tag")
         data = json.loads(_extract_json(text))
         return [
             GeneratedTag(
@@ -135,7 +147,7 @@ class OpenAIProvider(AIProvider):
             )
             max_tokens = 500
 
-        raw = self._chat(prompt, max_tokens)
+        raw = self._chat(prompt, max_tokens, "relevance")
         # Try to parse JSON from the response
         for attempt in [raw, _extract_json(raw)]:
             try:

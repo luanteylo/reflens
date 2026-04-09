@@ -42,8 +42,39 @@ class RankedReference:
     explanation: str
 
 
+# Approximate cost per 1M tokens (input/output) for known models
+MODEL_COSTS: dict[str, tuple[float, float]] = {
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-sonnet-4-20250514": (3.0, 15.0),
+    "gpt-4o": (2.5, 10.0),
+    "gpt-4o-mini": (0.15, 0.6),
+    "gpt-4-turbo": (10.0, 30.0),
+}
+
+
+@dataclass
+class UsageInfo:
+    provider: str = ""
+    model: str = ""
+    operation: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+
+    def compute_cost(self) -> None:
+        costs = MODEL_COSTS.get(self.model)
+        if costs:
+            input_cost, output_cost = costs
+            self.cost_usd = (
+                self.prompt_tokens * input_cost / 1_000_000
+                + self.completion_tokens * output_cost / 1_000_000
+            )
+
+
 class AIProvider(ABC):
     profile: ProviderProfile = ProviderProfile()
+    last_usage: UsageInfo | None = None
 
     @abstractmethod
     async def summarize(self, title: str, abstract: str, full_text: str) -> PaperSummary:

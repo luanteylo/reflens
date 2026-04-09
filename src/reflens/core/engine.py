@@ -45,6 +45,32 @@ class RefLensEngine:
             self._ai = create_ai_provider(self.settings)
         return self._ai
 
+    def _log_usage(self, ai: AIProvider, user_id: str = "local") -> None:
+        """Save AI usage to database if available."""
+        if ai.last_usage is None:
+            return
+        try:
+            from reflens.db.models import UsageLog
+            session = self._get_session()
+            try:
+                log = UsageLog(
+                    user_id=user_id,
+                    provider=ai.last_usage.provider,
+                    model=ai.last_usage.model,
+                    operation=ai.last_usage.operation,
+                    prompt_tokens=ai.last_usage.prompt_tokens,
+                    completion_tokens=ai.last_usage.completion_tokens,
+                    total_tokens=ai.last_usage.total_tokens,
+                    cost_usd=ai.last_usage.cost_usd,
+                )
+                session.add(log)
+                session.commit()
+            finally:
+                session.close()
+            ai.last_usage = None
+        except Exception:
+            pass  # Don't fail operations on usage logging errors
+
     def get_ai(self, model_id: str | None = None) -> AIProvider:
         """Get an AI provider for a specific model, or the default."""
         if not model_id:
@@ -151,6 +177,7 @@ class RefLensEngine:
                 abstract=paper.abstract or "",
                 full_text=paper.full_text or "",
             )
+            self._log_usage(ai, user_id)
 
             paper.ai_summary = summary.overview
             paper.ai_key_contributions = summary.key_contributions
@@ -182,6 +209,7 @@ class RefLensEngine:
                 abstract=paper.abstract or "",
                 sections=paper.sections or {},
             )
+            self._log_usage(ai, user_id)
 
             tag_repo = TagRepository(session)
             tag_names = []
@@ -563,6 +591,7 @@ class RefLensEngine:
                     assessments = await ai.explain_relevance_batch(
                         text, paper_inputs
                     )
+                    self._log_usage(ai, user_id)
                 except Exception as exc:
                     logger.warning("Failed to explain relevance", exc_info=True)
                     ai_warning = str(exc)

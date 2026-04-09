@@ -57,6 +57,47 @@ class User(Base):
     )
 
 
+class UsageLog(Base):
+    __tablename__ = "usage_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+    provider: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(100))
+    operation: Mapped[str] = mapped_column(String(50))  # summarize, tag, relevance, etc.
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class UserApiKey(Base):
+    __tablename__ = "user_api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), index=True)
+    provider: Mapped[str] = mapped_column(String(50))  # claude, openai
+    encrypted_key: Mapped[str] = mapped_column(Text)
+    label: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class UserPreferences(Base):
+    __tablename__ = "user_preferences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    default_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    search_limit: Mapped[int] = mapped_column(Integer, default=10)
+    explain_by_default: Mapped[bool] = mapped_column(Boolean, default=True)
+    context_length: Mapped[int] = mapped_column(Integer, default=6000)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
 class ReadingStatus(PyEnum):
     UNREAD = "unread"
     PARTIAL = "partial"
