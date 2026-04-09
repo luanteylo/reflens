@@ -86,39 +86,58 @@ Be specific and cite paper titles."""
 # -- Compact prompts (for small local models) --
 
 SUMMARIZE_PROMPT_COMPACT = """\
-Summarize this paper as JSON with keys: overview, key_contributions (list), methodology, findings, limitations.
+You are a scientific paper summarizer. Read the paper below and produce a JSON summary.
 
 Title: {title}
 Abstract: {abstract}
 {full_text}
-JSON only:"""
+
+Respond with ONLY valid JSON, no other text:
+{{
+  "overview": "A one-paragraph summary of what the paper does and its main contribution",
+  "key_contributions": ["contribution 1", "contribution 2", "contribution 3"],
+  "methodology": "Brief description of methods used",
+  "findings": "Main results",
+  "limitations": "Key limitations"
+}}"""
 
 TAGS_PROMPT_COMPACT = """\
-Generate 5-8 topic tags for this paper. JSON list of {{"name": "tag-name", "confidence": 0.0-1.0}}.
-Use lowercase-hyphenated format.
+You are a scientific paper classifier. Generate 5 topic tags for this paper.
 
 Title: {title}
 Abstract: {abstract}
 {sections_text}
-JSON only:"""
+
+Respond with ONLY a JSON array, no other text:
+[{{"name": "example-tag", "confidence": 0.9}}, {{"name": "another-tag", "confidence": 0.8}}]
+
+Use lowercase-hyphenated format for tag names. Generate exactly 5 tags."""
 
 RELEVANCE_PROMPT_COMPACT = """\
-Does this paper support, contradict, or is neutral to the claim?
+You are a research assistant. Determine if the paper below is relevant to the claim.
 
-Claim: {query}
-Paper: {paper_title}
-Abstract: {paper_abstract}
+Claim: "{query}"
+
+Paper title: {paper_title}
+Paper abstract: {paper_abstract}
 {paper_text}
-JSON: {{"stance": "supports|contradicts|neutral", "explanation": "1 sentence"}}"""
+
+Respond with ONLY valid JSON, no other text:
+{{"stance": "supports", "explanation": "One sentence explaining why this paper supports or contradicts the claim."}}
+
+The stance must be exactly one of: "supports", "contradicts", or "neutral"."""
 
 BATCH_RELEVANCE_PROMPT = """\
-Assess each paper against the claim. For each, give stance and explanation.
+You are a research assistant. For each paper below, determine if it is relevant to the claim.
 
-Claim: {query}
+Claim: "{query}"
 
 {papers_block}
 
-Respond as JSON array: [{{"paper_index": 0, "stance": "supports|contradicts|neutral", "explanation": "1-2 sentences"}}]"""
+Respond with ONLY a JSON array, no other text. One entry per paper:
+[{{"paper_index": 0, "stance": "supports", "explanation": "Why this paper is relevant."}}]
+
+The stance must be exactly one of: "supports", "contradicts", or "neutral"."""
 
 
 def _extract_json(text: str) -> str:
@@ -302,32 +321,5 @@ class ClaudeProvider(AIProvider):
     async def explain_relevance_batch(
         self, query: str, papers: list[dict]
     ) -> list[dict]:
-        """Batch relevance for cloud models: one call for all papers."""
-        if len(papers) <= 1 or self.profile.use_compact_prompts:
-            return await super().explain_relevance_batch(query, papers)
-
-        papers_block = "\n\n".join(
-            f"Paper {i}: {p['title']}\nAbstract: {p['abstract'][:1000]}"
-            for i, p in enumerate(papers)
-        )
-        prompt = BATCH_RELEVANCE_PROMPT.format(query=query, papers_block=papers_block)
-
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=200 * len(papers),
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response.content[0].text
-        try:
-            data = json.loads(_extract_json(raw))
-            results = [{"stance": "neutral", "explanation": ""}] * len(papers)
-            for item in data:
-                idx = item.get("paper_index", 0)
-                if 0 <= idx < len(papers):
-                    results[idx] = {
-                        "stance": item.get("stance", "neutral"),
-                        "explanation": item.get("explanation", ""),
-                    }
-            return results
-        except (json.JSONDecodeError, KeyError):
-            return await super().explain_relevance_batch(query, papers)
+        """Per-paper relevance with full text for best quality."""
+        return await super().explain_relevance_batch(query, papers)

@@ -4,11 +4,12 @@ from reflens.ai.provider import AIProvider, ProviderProfile
 from reflens.config import Settings
 
 # Profile for local models (Ollama, etc.)
+# Mistral/Llama have 8K+ context, so 6K chars (~2K tokens) is safe
 LOCAL_PROFILE = ProviderProfile(
-    max_context_chars=3000,
-    max_output_tokens=500,
+    max_context_chars=6000,
+    max_output_tokens=800,
     use_compact_prompts=True,
-    abstract_only_relevance=True,
+    abstract_only_relevance=False,
 )
 
 

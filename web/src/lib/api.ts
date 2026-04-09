@@ -122,11 +122,12 @@ export const api = {
     }
     return request<SearchResponse>(`/search?${params.toString()}`);
   },
-  findReferences(body: ReferencesRequest) {
+  findReferences(body: ReferencesRequest, signal?: AbortSignal) {
     return request<ReferencesResponse>("/search/references", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal,
     });
   },
   tags: {

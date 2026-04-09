@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
-import { useFindReferences, useSearch } from "@/hooks/use-search";
+import { useSearch } from "@/hooks/use-search";
 import type { ReferenceResult, SearchResultItem, PaperCollection, SavedSearch } from "@/lib/types";
 
 function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
@@ -544,7 +544,10 @@ export default function HomePage() {
   const [searchTime, setSearchTime] = useState<number | null>(null);
   const searchStartRef = useRef<number>(0);
   const historyRef = useRef<HTMLDivElement>(null);
-  const refMutation = useFindReferences();
+  const abortRef = useRef<AbortController | null>(null);
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiSearchResults, setAiSearchResults] = useState<ReferenceResult[] | null>(null);
+  const [aiSearchError, setAiSearchError] = useState(false);
   const qc = useQueryClient();
 
   // Load history on mount
@@ -632,15 +635,34 @@ export default function HomePage() {
     searchStartRef.current = performance.now();
     if (useAi) {
       setDebouncedQuery("");
-      refMutation.mutate({
+      // Abort any previous request
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setAiSearching(true);
+      setAiSearchResults(null);
+      setAiSearchError(false);
+      api.findReferences({
         text: input.trim(),
         limit: 10,
         explain: true,
         collection_ids: activeColIds,
         model_id: selectedModelId ?? undefined,
-      });
+      }, controller.signal)
+        .then((data) => {
+          if (!controller.signal.aborted) {
+            setAiSearchResults(data.results);
+            setAiSearching(false);
+          }
+        })
+        .catch((err) => {
+          if (!controller.signal.aborted) {
+            setAiSearchError(true);
+            setAiSearching(false);
+          }
+        });
     } else {
-      refMutation.reset();
+      setAiSearchResults(null);
       setDebouncedQuery(input.trim());
     }
   };
@@ -683,33 +705,40 @@ export default function HomePage() {
       setCachedResults(search.results);
     } else {
       setCachedResults(null);
-      refMutation.mutate({
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setAiSearching(true);
+      setAiSearchResults(null);
+      api.findReferences({
         text: search.text,
         limit: 10,
         explain: true,
         collection_ids: search.collection_id ? [search.collection_id] : undefined,
         model_id: selectedModelId ?? undefined,
-      });
+      }, controller.signal)
+        .then((data) => { if (!controller.signal.aborted) { setAiSearchResults(data.results); setAiSearching(false); } })
+        .catch(() => { if (!controller.signal.aborted) { setAiSearching(false); } });
     }
   };
 
   // AI results
-  const aiResults = cachedResults ?? refMutation.data?.results ?? null;
-  const isAiSearching = !cachedResults && refMutation.isPending;
+  const aiResults = cachedResults ?? aiSearchResults;
+  const isAiSearchPending = !cachedResults && aiSearching;
 
   // Regular results
   const regularResults = regularSearchData?.results ?? null;
 
   // Stop timer when results arrive
   useEffect(() => {
-    if (searchStartRef.current > 0 && !isAiSearching && !regularSearchLoading) {
+    if (searchStartRef.current > 0 && !isAiSearchPending && !regularSearchLoading) {
       const elapsed = (performance.now() - searchStartRef.current) / 1000;
       if (aiResults || regularResults) {
         setSearchTime(elapsed);
         searchStartRef.current = 0;
       }
     }
-  }, [isAiSearching, regularSearchLoading, aiResults, regularResults]);
+  }, [isAiSearchPending, regularSearchLoading, aiResults, regularResults]);
 
   // Landing state: centered logo + search
   if (!hasSearched) {
@@ -874,7 +903,9 @@ export default function HomePage() {
             if (v) {
               setDebouncedQuery("");
             } else {
-              refMutation.reset();
+              if (abortRef.current) abortRef.current.abort();
+              setAiSearching(false);
+              setAiSearchResults(null);
               if (input.trim()) setDebouncedQuery(input.trim());
             }
           }} />
@@ -898,10 +929,16 @@ export default function HomePage() {
         {/* AI mode */}
         {aiEnabled && (
           <>
-            {isAiSearching && (
+            {isAiSearchPending && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
                 <Sparkles className="h-4 w-4 text-purple-500 animate-pulse" />
                 Analyzing with AI...
+                <button
+                  onClick={() => { if (abortRef.current) { abortRef.current.abort(); } setAiSearching(false); setAiSearchResults(null); setSearchTime(null); }}
+                  className="ml-2 rounded-full border border-border px-3 py-0.5 text-xs hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
               </div>
             )}
 
@@ -959,7 +996,7 @@ export default function HomePage() {
               </p>
             )}
 
-            {refMutation.error && !cachedResults && (
+            {aiSearchError && !cachedResults && (
               <p className="text-sm text-destructive py-8">
                 Something went wrong. Please try again.
               </p>
@@ -974,6 +1011,12 @@ export default function HomePage() {
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Searching...
+                <button
+                  onClick={() => { setDebouncedQuery(""); setSearchTime(null); }}
+                  className="ml-2 rounded-full border border-border px-3 py-0.5 text-xs hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
               </div>
             )}
 

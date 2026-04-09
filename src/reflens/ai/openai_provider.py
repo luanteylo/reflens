@@ -157,27 +157,5 @@ class OpenAIProvider(AIProvider):
     async def explain_relevance_batch(
         self, query: str, papers: list[dict]
     ) -> list[dict]:
-        """Batch relevance: one call for all papers (cloud), sequential (local)."""
-        if len(papers) <= 1 or self.profile.use_compact_prompts:
-            return await super().explain_relevance_batch(query, papers)
-
-        papers_block = "\n\n".join(
-            f"Paper {i}: {p['title']}\nAbstract: {p['abstract'][:1000]}"
-            for i, p in enumerate(papers)
-        )
-        prompt = BATCH_RELEVANCE_PROMPT.format(query=query, papers_block=papers_block)
-
-        raw = self._chat(prompt, 200 * len(papers))
-        try:
-            data = json.loads(_extract_json(raw))
-            results = [{"stance": "neutral", "explanation": ""}] * len(papers)
-            for item in data:
-                idx = item.get("paper_index", 0)
-                if 0 <= idx < len(papers):
-                    results[idx] = {
-                        "stance": item.get("stance", "neutral"),
-                        "explanation": item.get("explanation", ""),
-                    }
-            return results
-        except (json.JSONDecodeError, KeyError):
-            return await super().explain_relevance_batch(query, papers)
+        """Per-paper relevance for best quality."""
+        return await super().explain_relevance_batch(query, papers)
