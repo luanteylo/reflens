@@ -2,7 +2,7 @@
 
 import socket
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
@@ -66,6 +66,36 @@ def create_app() -> FastAPI:
             "model": settings.ai_model,
             "default": f"{settings.ai_provider}/{settings.ai_model}",
             "models": list_available_models(settings),
+        }
+
+    @v1.get("/health/stats", tags=["system"])
+    def stats(request: Request):
+        from reflens.api.deps import get_engine, get_user_id
+        engine = get_engine()
+        user_id = get_user_id(request)
+        total_papers = engine.count_papers(user_id)
+        collections = engine.list_collections(user_id)
+
+        # Count storage size
+        import os
+        storage_bytes = 0
+        storage_path = engine.settings.storage_path / user_id
+        if storage_path.exists():
+            for f in storage_path.rglob("*"):
+                if f.is_file():
+                    storage_bytes += f.stat().st_size
+
+        def _count_collections(cols: list) -> int:
+            count = len(cols)
+            for c in cols:
+                count += _count_collections(c.get("children", []))
+            return count
+
+        return {
+            "papers": total_papers,
+            "collections": _count_collections(collections),
+            "storage_bytes": storage_bytes,
+            "storage_mb": round(storage_bytes / (1024 * 1024), 1),
         }
 
     @v1.get("/health/grobid", tags=["system"])

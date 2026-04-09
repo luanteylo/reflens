@@ -127,6 +127,36 @@ def verify_email(token: str, session: Session, settings: Settings) -> User:
     return user
 
 
+def change_password(
+    user_id: str,
+    current_password: str,
+    new_password: str,
+    session: Session,
+) -> None:
+    """Change user password. Raises AuthError on failure."""
+    validate_password(new_password)
+    user = _get_user_by_id(session, user_id)
+    if user is None:
+        raise AuthError("User not found", 404)
+    if not verify_password(current_password, user.hashed_password):
+        raise AuthError("Current password is incorrect", 401)
+    user.hashed_password = hash_password(new_password)
+    session.commit()
+
+
+def delete_account(
+    user_id: str, password: str, session: Session
+) -> None:
+    """Delete user account after password confirmation."""
+    user = _get_user_by_id(session, user_id)
+    if user is None:
+        raise AuthError("User not found", 404)
+    if not verify_password(password, user.hashed_password):
+        raise AuthError("Password is incorrect", 401)
+    session.delete(user)
+    session.commit()
+
+
 def refresh_tokens(
     refresh_token_str: str, session: Session, settings: Settings
 ) -> tuple[str, str]:

@@ -3,7 +3,15 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr, Field
 
-from reflens.auth.service import AuthError, login, refresh_tokens, signup, verify_email
+from reflens.auth.service import (
+    AuthError,
+    change_password,
+    delete_account,
+    login,
+    refresh_tokens,
+    signup,
+    verify_email,
+)
 from reflens.config import get_settings
 from reflens.db.session import get_session
 
@@ -28,11 +36,21 @@ class AuthResponse(BaseModel):
     message: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
 class UserResponse(BaseModel):
     user_id: str
     email: str
     plan: str
     email_verified: bool
+    created_at: str | None = None
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -136,6 +154,59 @@ def verify_email_endpoint(body: VerifyRequest):
         session.close()
 
 
+def _get_current_user_id(request: Request) -> str:
+    """Extract user_id from access token cookie."""
+    settings = get_settings()
+    from reflens.auth.security import decode_token
+
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = decode_token(token, settings)
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return payload["sub"]
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+@router.post("/change-password", response_model=AuthResponse)
+def change_password_endpoint(body: ChangePasswordRequest, request: Request):
+    settings = get_settings()
+    if not settings.auth_enabled:
+        raise HTTPException(status_code=404, detail="Auth is not enabled")
+
+    user_id = _get_current_user_id(request)
+    session = get_session()
+    try:
+        change_password(user_id, body.current_password, body.new_password, session)
+        return AuthResponse(message="Password changed successfully")
+    except AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    finally:
+        session.close()
+
+
+@router.delete("/account", response_model=AuthResponse)
+def delete_account_endpoint(body: DeleteAccountRequest, request: Request, response: Response):
+    settings = get_settings()
+    if not settings.auth_enabled:
+        raise HTTPException(status_code=404, detail="Auth is not enabled")
+
+    user_id = _get_current_user_id(request)
+    session = get_session()
+    try:
+        delete_account(user_id, body.password, session)
+        response.delete_cookie("access_token", path="/")
+        response.delete_cookie("refresh_token", path="/api/v1/auth/refresh")
+        return AuthResponse(message="Account deleted")
+    except AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    finally:
+        session.close()
+
+
 @router.get("/me", response_model=UserResponse)
 def me_endpoint(request: Request):
     settings = get_settings()
@@ -144,26 +215,14 @@ def me_endpoint(request: Request):
             user_id="local", email="local@localhost", plan="free", email_verified=True
         )
 
-    from reflens.auth.security import decode_token
-
-    token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    try:
-        payload = decode_token(token, settings)
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
+    user_id = _get_current_user_id(request)
     session = get_session()
     try:
         from sqlalchemy import select
         from reflens.db.models import User
 
         user = session.execute(
-            select(User).where(User.id == payload["sub"])
+            select(User).where(User.id == user_id)
         ).scalar_one_or_none()
         if user is None:
             raise HTTPException(status_code=401, detail="User not found")
@@ -172,6 +231,7 @@ def me_endpoint(request: Request):
             email=user.email,
             plan=user.plan,
             email_verified=user.email_verified,
+            created_at=user.created_at.isoformat() if user.created_at else None,
         )
     finally:
         session.close()

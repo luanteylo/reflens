@@ -19,6 +19,7 @@ import {
   FolderPlus,
   Plus,
   FileText,
+  Settings,
 } from "lucide-react";
 // Folder upload uses native drag-and-drop API for directory traversal
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1091,6 +1092,13 @@ export default function LibraryPage() {
             className="text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
             Search references
+          </Link>
+          <Link
+            href="/settings"
+            className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
           </Link>
         </div>
       </div>

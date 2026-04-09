@@ -54,6 +54,7 @@ export interface AuthUser {
   email: string;
   plan: string;
   email_verified: boolean;
+  created_at: string | null;
 }
 
 // Papers
@@ -89,6 +90,23 @@ export const api = {
         body: JSON.stringify({ token }),
       });
     },
+    changePassword(currentPassword: string, newPassword: string) {
+      return request<{ message: string }>("/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+    },
+    deleteAccount(password: string) {
+      return request<{ message: string }>("/auth/account", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+    },
+  },
+  stats() {
+    return request<{ papers: number; collections: number; storage_bytes: number; storage_mb: number }>("/health/stats");
   },
   papers: {
     list(limit = 50, offset = 0, tagIds?: string[]) {

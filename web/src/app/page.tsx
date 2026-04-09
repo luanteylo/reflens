@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import Link from "next/link";
-import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2 } from "lucide-react";
+import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2, Settings } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
 import { useSearch } from "@/hooks/use-search";
@@ -1347,6 +1347,13 @@ export default function HomePage() {
             className="text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
           >
             Library
+          </Link>
+          <Link
+            href="/settings"
+            className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
           </Link>
         </div>
       </div>
