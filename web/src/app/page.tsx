@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 import Link from "next/link";
-import { Search, Loader2, ChevronDown, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2, Settings } from "lucide-react";
+import { Search, Loader2, ChevronDown, ChevronRight, FolderOpen, Bookmark, X, Clock, Copy, Check, Sparkles, FileText, Maximize2, Settings } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
 import { useSearch } from "@/hooks/use-search";
@@ -116,6 +116,7 @@ function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId 
     itemWithAI.stance ? { stance: itemWithAI.stance, explanation: itemWithAI.explanation || "" } : null
   );
   const [analyzing, setAnalyzing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const handleAnalyze = async () => {
     setAnalyzing(true);
@@ -127,7 +128,7 @@ function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId 
   };
 
   return (
-    <div className="max-w-2xl py-4 flex gap-3">
+    <div className="max-w-3xl py-4 flex gap-3">
       <button
         onClick={onToggleSelect}
         className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
@@ -139,66 +140,118 @@ function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId 
         {selected && <Check className="h-3 w-3" />}
       </button>
       <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {authors}
-        {paper.year ? ` · ${paper.year}` : ""}
-        {pct != null && <span className="text-primary">{pct}% match</span>}
-        {analysis && <StanceBadge stance={analysis.stance} />}
-      </div>
-      <h3 className="text-lg text-primary mt-0.5 leading-snug">
-        {paper.title}
-      </h3>
-      {/* Show abstract context */}
-      {paper.abstract && !analysis && (
-        <p className="text-sm text-foreground/70 mt-1 leading-relaxed line-clamp-3">
-          {paper.abstract}
-        </p>
-      )}
-      {/* Show AI analysis */}
-      {analysis && analysis.explanation && (
-        <p className="text-sm text-foreground/70 mt-1 leading-relaxed">
-          {analysis.explanation}
-        </p>
-      )}
-      {paper.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {paper.tags.map((t) => (
-            <span
-              key={t.id}
-              className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
-            >
-              {t.tag_name}
-            </span>
-          ))}
+        {/* Header: authors, year, score, stance */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+          {authors}
+          {paper.year ? ` · ${paper.year}` : ""}
+          {paper.doi && (
+            <span className="text-xs text-muted-foreground/60">DOI: {paper.doi}</span>
+          )}
+          {pct != null && <span className="text-primary font-medium">{pct}% match</span>}
+          {analysis && <StanceBadge stance={analysis.stance} />}
         </div>
-      )}
-      <div className="flex items-center gap-3 mt-2">
-        {!analysis && (
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing}
-            className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 transition-colors"
-          >
-            {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            {analyzing ? "Analyzing..." : "Analyze"}
-          </button>
+
+        {/* Title */}
+        <h3
+          className="text-lg text-primary mt-0.5 leading-snug cursor-pointer hover:underline"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {paper.title}
+        </h3>
+
+        {/* AI analysis (if available) */}
+        {analysis && analysis.explanation && (
+          <div className="mt-1 rounded-md bg-purple-50 border border-purple-100 px-3 py-2">
+            <p className="text-sm text-purple-900 leading-relaxed">
+              {analysis.explanation}
+            </p>
+          </div>
         )}
-        <button
-          onClick={() => citePanelRef.current?.toggle()}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Copy className="h-3 w-3" />
-          Cite
-        </button>
-        <button
-          onClick={() => onOpenPdf(paper.id, paper.title)}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <FileText className="h-3 w-3" />
-          PDF
-        </button>
-      </div>
-      <CitePanel ref={citePanelRef} paperId={paper.id} />
+
+        {/* Abstract (always visible, truncated unless expanded) */}
+        {paper.abstract && (
+          <p className={`text-sm text-foreground/70 mt-1.5 leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
+            {paper.abstract}
+          </p>
+        )}
+
+        {/* Tags */}
+        {paper.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {paper.tags.map((t) => (
+              <span
+                key={t.id}
+                className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
+              >
+                {t.tag_name}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Expanded details */}
+        {expanded && (
+          <div className="mt-3 space-y-2 border-t border-border pt-3">
+            {/* AI Summary */}
+            {paper.ai_summary && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-0.5">AI Summary</p>
+                <p className="text-sm text-foreground/80 leading-relaxed">{paper.ai_summary}</p>
+              </div>
+            )}
+
+            {/* Authors with affiliations */}
+            {paper.authors.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-0.5">Authors</p>
+                <p className="text-sm text-foreground/80">
+                  {paper.authors.map((a) => a.name).join(", ")}
+                </p>
+              </div>
+            )}
+
+            {/* Full abstract if not shown above */}
+            {!paper.abstract && paper.ai_summary && (
+              <p className="text-xs text-muted-foreground italic">No abstract extracted</p>
+            )}
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-3 mt-2">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {expanded ? "Less" : "More"}
+          </button>
+          {!analysis && (
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 transition-colors"
+            >
+              {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {analyzing ? "Analyzing..." : "Analyze"}
+            </button>
+          )}
+          <button
+            onClick={() => citePanelRef.current?.toggle()}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Copy className="h-3 w-3" />
+            Cite
+          </button>
+          <button
+            onClick={() => onOpenPdf(paper.id, paper.title)}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            PDF
+          </button>
+        </div>
+        <CitePanel ref={citePanelRef} paperId={paper.id} />
       </div>
     </div>
   );
