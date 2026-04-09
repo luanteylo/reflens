@@ -239,6 +239,81 @@ function SearchResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item:
 }
 
 // AI toggle switch
+const AI_LOADING_MESSAGES = [
+  "Searching embeddings...",
+  "Finding relevant papers...",
+  "Analyzing content...",
+  "Why is this so slow?",
+  "Are you using the Xuxa PC?",
+  "Are you sure you should be running this on this machine?",
+  "Maybe you have time to make one (or maybe two) coffees before the results pop up",
+  "You could probably go to YouTube and watch a video while waiting",
+  "How is the weather today?",
+  "The summer will probably be hot this year",
+  "Et la famille, ça va?",
+  "Have you tried turning it off and on again?",
+  "Still working on it... probably",
+  "The hamster powering the CPU needs a break",
+  "Maybe it's time to invest in a GPU",
+  "I'm not slow, I'm just thorough",
+  "Fun fact: light travels 300,000 km/s. This model doesn't.",
+  "Did you remember to water your plants today?",
+  "This is a good time to stretch your legs",
+  "Have you considered that the answer might be 42?",
+  "Plot twist: the paper you need hasn't been written yet",
+  "The embeddings are embedding... deeply",
+  "At least it's not a fax machine",
+  "Patience is a virtue. Or so they say.",
+  "If you're reading this, the model is still thinking",
+  "Maybe try a smaller model? Just a thought.",
+  "Your CPU is doing its best. Be kind.",
+  "Almost there... probably... maybe...",
+];
+
+function AILoadingIndicator() {
+  const [msgIndex, setMsgIndex] = useState(0);
+  const [dots, setDots] = useState(0);
+
+  useEffect(() => {
+    // Start with the first 3 real messages, then shuffle the rest
+    const serious = AI_LOADING_MESSAGES.slice(0, 3);
+    const jokes = AI_LOADING_MESSAGES.slice(3).sort(() => Math.random() - 0.5);
+    const order = [...serious, ...jokes];
+
+    let idx = 0;
+    let timeout: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      const delay = 3000 + Math.random() * 3000;
+      timeout = setTimeout(() => {
+        idx = (idx + 1) % order.length;
+        setMsgIndex(AI_LOADING_MESSAGES.indexOf(order[idx]));
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
+    const dotTimer = setInterval(() => {
+      setDots((d) => (d + 1) % 4);
+    }, 500);
+    return () => { clearTimeout(timeout); clearInterval(dotTimer); };
+  }, []);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="relative h-5 w-5">
+          <Sparkles className="h-5 w-5 text-purple-500 animate-pulse" />
+        </div>
+        <span className="text-sm text-purple-700">
+          {AI_LOADING_MESSAGES[msgIndex]}{".".repeat(dots)}
+        </span>
+      </div>
+      <div className="h-1 w-48 rounded-full bg-purple-100 overflow-hidden">
+        <div className="h-full bg-purple-400 rounded-full animate-progress" />
+      </div>
+    </div>
+  );
+}
+
 type AIModel = { id: string; provider: string; model: string; local: boolean };
 
 function AIToggle({
@@ -930,12 +1005,11 @@ export default function HomePage() {
         {aiEnabled && (
           <>
             {isAiSearchPending && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-8">
-                <Sparkles className="h-4 w-4 text-purple-500 animate-pulse" />
-                Analyzing with AI...
+              <div className="py-8 space-y-4">
+                <AILoadingIndicator />
                 <button
-                  onClick={() => { if (abortRef.current) { abortRef.current.abort(); } setAiSearching(false); setAiSearchResults(null); setSearchTime(null); }}
-                  className="ml-2 rounded-full border border-border px-3 py-0.5 text-xs hover:bg-muted transition-colors"
+                  onClick={() => { if (abortRef.current) abortRef.current.abort(); setAiSearching(false); setAiSearchResults(null); setSearchTime(null); }}
+                  className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted transition-colors"
                 >
                   Cancel
                 </button>
