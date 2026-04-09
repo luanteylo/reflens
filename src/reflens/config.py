@@ -12,7 +12,10 @@ class Settings(BaseSettings):
     # AI providers
     anthropic_api_key: str = ""
     openai_api_key: str = ""
-    ai_provider: str = Field(default="claude", description="claude or openai")
+    openai_base_url: str = ""
+    ai_provider: str = Field(
+        default="claude", description="claude, openai, or ollama"
+    )
     ai_model: str = Field(
         default="claude-sonnet-4-6",
         description="Model for summarization and tagging",

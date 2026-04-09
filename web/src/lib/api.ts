@@ -195,6 +195,9 @@ export const api = {
       return request<void>(`/saved-searches/${id}`, { method: "DELETE" });
     },
   },
+  aiInfo() {
+    return request<{ provider: string; model: string }>("/health/ai");
+  },
   grobidHealth() {
     return request<{ status: string }>("/health/grobid");
   },

@@ -55,6 +55,15 @@ def create_app() -> FastAPI:
     def health():
         return HealthResponse(status="ok", version=__version__)
 
+    @v1.get("/health/ai", tags=["system"])
+    def ai_info():
+        from reflens.config import get_settings
+        settings = get_settings()
+        return {
+            "provider": settings.ai_provider,
+            "model": settings.ai_model,
+        }
+
     @v1.get("/health/grobid", tags=["system"])
     def grobid_health():
         import httpx

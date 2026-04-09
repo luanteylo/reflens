@@ -18,8 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "gpt-4o"):
-        self.client = openai.OpenAI(api_key=api_key)
+    def __init__(self, api_key: str, model: str = "gpt-4o", base_url: str | None = None):
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self.client = openai.OpenAI(**kwargs)
         self.model = model
 
     async def summarize(self, title: str, abstract: str, full_text: str) -> PaperSummary:

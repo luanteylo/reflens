@@ -27,6 +27,15 @@ def create_ai_provider(settings: Settings) -> AIProvider:
         return OpenAIProvider(
             api_key=settings.openai_api_key,
             model=settings.ai_model,
+            base_url=settings.openai_base_url or None,
+        )
+    elif settings.ai_provider == "ollama":
+        from reflens.ai.openai_provider import OpenAIProvider
+
+        return OpenAIProvider(
+            api_key="ollama",
+            model=settings.ai_model or "llama3.1",
+            base_url=settings.openai_base_url or "http://localhost:11434/v1",
         )
     else:
         raise ValueError(f"Unknown AI provider: {settings.ai_provider}")

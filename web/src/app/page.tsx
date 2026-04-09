@@ -239,7 +239,7 @@ function SearchResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item:
 }
 
 // AI toggle switch
-function AIToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+function AIToggle({ enabled, onChange, model }: { enabled: boolean; onChange: (v: boolean) => void; model?: string }) {
   return (
     <button
       type="button"
@@ -249,10 +249,13 @@ function AIToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boole
           ? "bg-purple-100 text-purple-700 border border-purple-200"
           : "border border-border text-muted-foreground hover:text-foreground"
       }`}
-      title={enabled ? "AI analysis enabled" : "AI analysis disabled"}
+      title={enabled ? `AI analysis enabled${model ? ` (${model})` : ""}` : "AI analysis disabled"}
     >
       <Sparkles className={`h-3.5 w-3.5 ${enabled ? "text-purple-500" : ""}`} />
       <span className="text-xs font-medium">AI</span>
+      {enabled && model && (
+        <span className="text-xs opacity-60">{model}</span>
+      )}
       <div
         className={`relative h-4 w-7 rounded-full transition-colors ${
           enabled ? "bg-purple-500" : "bg-border"
@@ -526,6 +529,12 @@ export default function HomePage() {
     queryFn: () => api.savedSearches.list(),
   });
 
+  const { data: aiInfo } = useQuery({
+    queryKey: ["ai-info"],
+    queryFn: () => api.aiInfo(),
+  });
+  const aiModel = aiInfo?.model;
+
   const saveMutation = useMutation({
     mutationFn: ({ text, collectionIds, results }: { text: string; collectionIds?: string[]; results?: ReferenceResult[] }) =>
       api.savedSearches.save(text, collectionIds, results),
@@ -685,7 +694,7 @@ export default function HomePage() {
             )}
           </div>
           <div className="flex items-center justify-center gap-3">
-            <AIToggle enabled={aiEnabled} onChange={setAiEnabled} />
+            <AIToggle enabled={aiEnabled} onChange={setAiEnabled} model={aiModel} />
             <CollectionSelector
               collections={collections}
               selectedIds={selectedColIds}
@@ -783,7 +792,7 @@ export default function HomePage() {
               )}
             </div>
           </form>
-          <AIToggle enabled={aiEnabled} onChange={(v) => {
+          <AIToggle enabled={aiEnabled} model={aiModel} onChange={(v) => {
             setAiEnabled(v);
             setCachedResults(null);
             if (v) {
