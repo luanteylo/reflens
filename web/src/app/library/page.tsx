@@ -1447,12 +1447,24 @@ export default function LibraryPage() {
             </div>
 
             {/* Task progress */}
+            {summarizeAll.isPending && (
+              <div className="rounded-lg border border-border bg-white p-3 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Starting summarization...
+              </div>
+            )}
             {(summarizeAll.taskId && summarizeAll.status) && (
               <TaskProgress
                 label="Summarizing"
                 status={summarizeAll.status}
                 onDismiss={summarizeAll.dismiss}
               />
+            )}
+            {tagAll.isPending && (
+              <div className="rounded-lg border border-border bg-white p-3 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Starting tagging...
+              </div>
             )}
             {(tagAll.taskId && tagAll.status) && (
               <TaskProgress

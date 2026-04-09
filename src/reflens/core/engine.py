@@ -184,13 +184,13 @@ class RefLensEngine:
             resolved_id = model_id or f"{self.settings.ai_provider}/{self.settings.ai_model}"
             _, model_name = parse_model_spec(resolved_id)
 
-            # If user provides extra instructions, prepend to abstract
             abstract = paper.abstract or ""
+            title = paper.title
             if user_prompt:
-                abstract = f"[User instructions: {user_prompt}]\n\n{abstract}"
+                title = f"{paper.title}\n\nIMPORTANT - Additional instructions from the user: {user_prompt}"
 
             summary = await ai.summarize(
-                title=paper.title,
+                title=title,
                 abstract=abstract,
                 full_text=paper.full_text or "",
             )
