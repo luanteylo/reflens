@@ -1,5 +1,6 @@
 """MCP server exposing RefLens tools for AI clients."""
 
+import os
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -11,7 +12,8 @@ from reflens.core.engine import RefLensEngine
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     engine = RefLensEngine(get_settings())
-    yield {"engine": engine}
+    user_id = os.environ.get("REFLENS_MCP_USER_ID", "local")
+    yield {"engine": engine, "user_id": user_id}
 
 
 mcp = FastMCP(
@@ -26,6 +28,10 @@ mcp = FastMCP(
 
 def _get_engine(ctx: Context) -> RefLensEngine:
     return ctx.request_context.lifespan_context["engine"]
+
+
+def _get_user_id(ctx: Context) -> str:
+    return ctx.request_context.lifespan_context["user_id"]
 
 
 def _format_paper_short(paper, score: float | None = None) -> str:
@@ -57,7 +63,8 @@ async def reflens_find_references(
         tag_ids: Optional list of tag IDs to filter by.
     """
     engine = _get_engine(ctx)
-    data = await engine.find_references(text, limit=limit, tag_ids=tag_ids)
+    user_id = _get_user_id(ctx)
+    data = await engine.find_references(text, user_id=user_id, limit=limit, tag_ids=tag_ids)
     results = data.get("results", []) if isinstance(data, dict) else data
     if not results:
         return "No matching references found."
@@ -84,7 +91,8 @@ async def reflens_search(
         limit: Maximum number of results (default 10).
     """
     engine = _get_engine(ctx)
-    results = engine.search_papers(query, limit=limit)
+    user_id = _get_user_id(ctx)
+    results = engine.search_papers(query, user_id=user_id, limit=limit)
     if not results:
         return "No papers found."
     lines = [f"Found {len(results)} paper(s):\n"]
@@ -114,7 +122,8 @@ async def reflens_get_paper(ctx: Context, paper_id: str) -> str:
         paper_id: The UUID of the paper.
     """
     engine = _get_engine(ctx)
-    paper = engine.get_paper(paper_id)
+    user_id = _get_user_id(ctx)
+    paper = engine.get_paper(paper_id, user_id=user_id)
     if paper is None:
         return f"Paper not found: {paper_id}"
     authors = ", ".join(a.name for a in paper.authors) if paper.authors else "Unknown"
