@@ -6,9 +6,11 @@ import re
 
 import anthropic
 
-from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary
+from reflens.ai.provider import AIProvider, GeneratedTag, PaperSummary, ProviderProfile
 
 logger = logging.getLogger(__name__)
+
+# -- Verbose prompts (for large cloud models) --
 
 SUMMARIZE_PROMPT = """\
 You are an expert scientific paper analyst. Given the following paper, produce a structured summary.
@@ -81,6 +83,43 @@ Based on the evidence provided:
 
 Be specific and cite paper titles."""
 
+# -- Compact prompts (for small local models) --
+
+SUMMARIZE_PROMPT_COMPACT = """\
+Summarize this paper as JSON with keys: overview, key_contributions (list), methodology, findings, limitations.
+
+Title: {title}
+Abstract: {abstract}
+{full_text}
+JSON only:"""
+
+TAGS_PROMPT_COMPACT = """\
+Generate 5-8 topic tags for this paper. JSON list of {{"name": "tag-name", "confidence": 0.0-1.0}}.
+Use lowercase-hyphenated format.
+
+Title: {title}
+Abstract: {abstract}
+{sections_text}
+JSON only:"""
+
+RELEVANCE_PROMPT_COMPACT = """\
+Does this paper support, contradict, or is neutral to the claim?
+
+Claim: {query}
+Paper: {paper_title}
+Abstract: {paper_abstract}
+{paper_text}
+JSON: {{"stance": "supports|contradicts|neutral", "explanation": "1 sentence"}}"""
+
+BATCH_RELEVANCE_PROMPT = """\
+Assess each paper against the claim. For each, give stance and explanation.
+
+Claim: {query}
+
+{papers_block}
+
+Respond as JSON array: [{{"paper_index": 0, "stance": "supports|contradicts|neutral", "explanation": "1-2 sentences"}}]"""
+
 
 def _extract_json(text: str) -> str:
     """Extract valid JSON from LLM output.
@@ -116,25 +155,35 @@ def _extract_json(text: str) -> str:
 
 
 class ClaudeProvider(AIProvider):
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "claude-sonnet-4-6",
+        profile: ProviderProfile | None = None,
+    ):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        self.profile = profile or ProviderProfile()
 
     async def summarize(self, title: str, abstract: str, full_text: str) -> PaperSummary:
-        # Truncate to stay within context limits
-        truncated = full_text[:80_000] if len(full_text) > 80_000 else full_text
+        if self.profile.use_compact_prompts:
+            # For local models: use abstract only, compact prompt
+            text_to_send = full_text[:self.profile.max_context_chars] if full_text else ""
+            prompt = SUMMARIZE_PROMPT_COMPACT.format(
+                title=title, abstract=abstract, full_text=text_to_send
+            )
+            max_tokens = min(self.profile.max_output_tokens, 1000)
+        else:
+            truncated = full_text[:80_000] if len(full_text) > 80_000 else full_text
+            prompt = SUMMARIZE_PROMPT.format(
+                title=title, abstract=abstract, full_text=truncated
+            )
+            max_tokens = 2000
 
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=2000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": SUMMARIZE_PROMPT.format(
-                        title=title, abstract=abstract, full_text=truncated
-                    ),
-                }
-            ],
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text
         data = json.loads(_extract_json(text))
@@ -155,21 +204,31 @@ class ClaudeProvider(AIProvider):
     async def generate_tags(
         self, title: str, abstract: str, sections: dict[str, str]
     ) -> list[GeneratedTag]:
-        sections_text = "\n\n".join(
-            f"## {name}\n{text[:2000]}" for name, text in sections.items()
-        )
+        if self.profile.use_compact_prompts:
+            # Limit sections for small models
+            section_limit = 500
+            max_sections = 3
+            items = list(sections.items())[:max_sections]
+            sections_text = "\n".join(
+                f"{name}: {text[:section_limit]}" for name, text in items
+            )
+            prompt = TAGS_PROMPT_COMPACT.format(
+                title=title, abstract=abstract, sections_text=sections_text
+            )
+            max_tokens = 500
+        else:
+            sections_text = "\n\n".join(
+                f"## {name}\n{text[:2000]}" for name, text in sections.items()
+            )
+            prompt = TAGS_PROMPT.format(
+                title=title, abstract=abstract, sections_text=sections_text
+            )
+            max_tokens = 1000
 
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=1000,
-            messages=[
-                {
-                    "role": "user",
-                    "content": TAGS_PROMPT.format(
-                        title=title, abstract=abstract, sections_text=sections_text
-                    ),
-                }
-            ],
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text
         data = json.loads(_extract_json(text))
@@ -185,21 +244,34 @@ class ClaudeProvider(AIProvider):
     async def explain_relevance(
         self, query: str, paper_title: str, paper_abstract: str, paper_text: str
     ) -> dict:
-        truncated = paper_text[:10_000]
+        if self.profile.abstract_only_relevance:
+            text_to_send = ""
+        else:
+            text_to_send = paper_text[:self.profile.max_context_chars]
+
+        if self.profile.use_compact_prompts:
+            prompt = RELEVANCE_PROMPT_COMPACT.format(
+                query=query,
+                paper_title=paper_title,
+                paper_abstract=paper_abstract,
+                paper_text=text_to_send,
+            )
+            max_tokens = 200
+        else:
+            if not text_to_send:
+                text_to_send = paper_text[:10_000]
+            prompt = RELEVANCE_PROMPT.format(
+                query=query,
+                paper_title=paper_title,
+                paper_abstract=paper_abstract,
+                paper_text=text_to_send,
+            )
+            max_tokens = 500
+
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=500,
-            messages=[
-                {
-                    "role": "user",
-                    "content": RELEVANCE_PROMPT.format(
-                        query=query,
-                        paper_title=paper_title,
-                        paper_abstract=paper_abstract,
-                        paper_text=truncated,
-                    ),
-                }
-            ],
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text
         try:
@@ -211,12 +283,13 @@ class ClaudeProvider(AIProvider):
     async def check_claim(
         self, claim: str, supporting_texts: list[dict[str, str]]
     ) -> str:
+        limit = self.profile.max_context_chars if self.profile.use_compact_prompts else 3000
         evidence = "\n\n".join(
-            f"**{item['title']}**:\n{item['text'][:3000]}" for item in supporting_texts
+            f"**{item['title']}**:\n{item['text'][:limit]}" for item in supporting_texts
         )
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=1000,
+            max_tokens=self.profile.max_output_tokens,
             messages=[
                 {
                     "role": "user",
@@ -225,3 +298,36 @@ class ClaudeProvider(AIProvider):
             ],
         )
         return response.content[0].text
+
+    async def explain_relevance_batch(
+        self, query: str, papers: list[dict]
+    ) -> list[dict]:
+        """Batch relevance for cloud models: one call for all papers."""
+        if len(papers) <= 1 or self.profile.use_compact_prompts:
+            return await super().explain_relevance_batch(query, papers)
+
+        papers_block = "\n\n".join(
+            f"Paper {i}: {p['title']}\nAbstract: {p['abstract'][:1000]}"
+            for i, p in enumerate(papers)
+        )
+        prompt = BATCH_RELEVANCE_PROMPT.format(query=query, papers_block=papers_block)
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=200 * len(papers),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response.content[0].text
+        try:
+            data = json.loads(_extract_json(raw))
+            results = [{"stance": "neutral", "explanation": ""}] * len(papers)
+            for item in data:
+                idx = item.get("paper_index", 0)
+                if 0 <= idx < len(papers):
+                    results[idx] = {
+                        "stance": item.get("stance", "neutral"),
+                        "explanation": item.get("explanation", ""),
+                    }
+            return results
+        except (json.JSONDecodeError, KeyError):
+            return await super().explain_relevance_batch(query, papers)

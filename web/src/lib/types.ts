@@ -115,6 +115,7 @@ export interface ReferencesRequest {
   explain?: boolean;
   tag_ids?: string[];
   collection_ids?: string[];
+  model_id?: string;
 }
 
 export interface PaperCollection {

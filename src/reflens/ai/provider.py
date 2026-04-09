@@ -9,6 +9,16 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class ProviderProfile:
+    """Declares a provider's capabilities and limits."""
+
+    max_context_chars: int = 300_000  # conservative default for cloud models
+    max_output_tokens: int = 2000
+    use_compact_prompts: bool = False
+    abstract_only_relevance: bool = False  # skip full_text for relevance
+
+
+@dataclass
 class PaperSummary:
     overview: str = ""
     key_contributions: list[str] = field(default_factory=list)
@@ -33,6 +43,8 @@ class RankedReference:
 
 
 class AIProvider(ABC):
+    profile: ProviderProfile = ProviderProfile()
+
     @abstractmethod
     async def summarize(self, title: str, abstract: str, full_text: str) -> PaperSummary:
         """Generate a structured summary of a paper."""
@@ -57,3 +69,15 @@ class AIProvider(ABC):
         self, claim: str, supporting_texts: list[dict[str, str]]
     ) -> str:
         """Check whether a claim is supported by the given paper excerpts."""
+
+    async def explain_relevance_batch(
+        self, query: str, papers: list[dict]
+    ) -> list[dict]:
+        """Assess multiple papers. Default: sequential calls."""
+        results = []
+        for p in papers:
+            r = await self.explain_relevance(
+                query, p["title"], p["abstract"], p["text"]
+            )
+            results.append(r)
+        return results

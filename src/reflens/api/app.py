@@ -57,11 +57,14 @@ def create_app() -> FastAPI:
 
     @v1.get("/health/ai", tags=["system"])
     def ai_info():
+        from reflens.ai.factory import list_available_models
         from reflens.config import get_settings
         settings = get_settings()
         return {
             "provider": settings.ai_provider,
             "model": settings.ai_model,
+            "default": f"{settings.ai_provider}/{settings.ai_model}",
+            "models": list_available_models(settings),
         }
 
     @v1.get("/health/grobid", tags=["system"])

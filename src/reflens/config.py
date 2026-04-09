@@ -14,11 +14,15 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = ""
     ai_provider: str = Field(
-        default="claude", description="claude, openai, or ollama"
+        default="claude", description="Default provider: claude, openai, or ollama"
     )
     ai_model: str = Field(
         default="claude-sonnet-4-6",
-        description="Model for summarization and tagging",
+        description="Default model for summarization and tagging",
+    )
+    ai_models: str = Field(
+        default="",
+        description="Comma-separated list of available models, e.g. ollama/mistral,ollama/llama3.1,claude/claude-sonnet-4-6",
     )
     embedding_model: str = Field(
         default="all-MiniLM-L6-v2",

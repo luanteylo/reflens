@@ -155,6 +155,7 @@ class ReferencesRequest(BaseModel):
     explain: bool = False
     tag_ids: list[str] | None = None
     collection_ids: list[str] | None = None
+    model_id: str | None = None
 
 
 class ReferenceResult(BaseModel):

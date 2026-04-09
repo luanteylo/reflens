@@ -45,6 +45,12 @@ class RefLensEngine:
             self._ai = create_ai_provider(self.settings)
         return self._ai
 
+    def get_ai(self, model_id: str | None = None) -> AIProvider:
+        """Get an AI provider for a specific model, or the default."""
+        if not model_id:
+            return self.ai
+        return create_ai_provider(self.settings, model_id)
+
     @property
     def embedding_store(self) -> EmbeddingStore:
         if self._embedding_store is None:
@@ -498,6 +504,7 @@ class RefLensEngine:
         explain: bool = False,
         tag_ids: list[str] | None = None,
         collection_ids: list[str] | None = None,
+        model_id: str | None = None,
     ) -> list[dict]:
         """Find papers that could serve as references for the given text.
 
@@ -528,36 +535,43 @@ class RefLensEngine:
                 allowed = repo.get_paper_ids_by_tags(tag_ids, user_id)
                 scored = {pid: s for pid, s in scored.items() if pid in allowed}
 
-            results = []
+            # Load top papers
+            papers = []
             for pid in sorted(scored, key=scored.get, reverse=True):
                 paper = repo.get_with_relations(pid, user_id)
-                if paper is None:
-                    continue
-                explanation = None
-                stance = None
-                if explain:
-                    try:
-                        assessment = await self.ai.explain_relevance(
-                            query=text,
-                            paper_title=paper.title,
-                            paper_abstract=paper.abstract or "",
-                            paper_text=paper.full_text or "",
-                        )
-                        explanation = assessment["explanation"]
-                        stance = assessment["stance"]
-                    except Exception:
-                        logger.warning(
-                            "Failed to explain relevance for %s", pid, exc_info=True
-                        )
-                results.append({
-                    "paper": paper,
-                    "score": scored[pid],
-                    "explanation": explanation,
-                    "stance": stance,
-                })
-                if len(results) >= limit:
+                if paper:
+                    papers.append(paper)
+                if len(papers) >= limit:
                     break
-            return results
+
+            # Batch explain if requested
+            assessments = [None] * len(papers)
+            if explain and papers:
+                try:
+                    paper_inputs = [
+                        {
+                            "title": p.title,
+                            "abstract": p.abstract or "",
+                            "text": p.full_text or "",
+                        }
+                        for p in papers
+                    ]
+                    ai = self.get_ai(model_id)
+                    assessments = await ai.explain_relevance_batch(
+                        text, paper_inputs
+                    )
+                except Exception:
+                    logger.warning("Failed to explain relevance", exc_info=True)
+
+            return [
+                {
+                    "paper": paper,
+                    "score": scored[paper.id],
+                    "explanation": a["explanation"] if a else None,
+                    "stance": a["stance"] if a else None,
+                }
+                for paper, a in zip(papers, assessments)
+            ]
         finally:
             session.close()
 

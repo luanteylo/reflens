@@ -72,6 +72,7 @@ async def find_references(
         explain=body.explain,
         tag_ids=body.tag_ids,
         collection_ids=body.collection_ids,
+        model_id=body.model_id,
     )
     return ReferencesResponse(
         results=[

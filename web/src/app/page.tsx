@@ -239,35 +239,89 @@ function SearchResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item:
 }
 
 // AI toggle switch
-function AIToggle({ enabled, onChange, model }: { enabled: boolean; onChange: (v: boolean) => void; model?: string }) {
+type AIModel = { id: string; provider: string; model: string; local: boolean };
+
+function AIToggle({
+  enabled,
+  onChange,
+  models,
+  selectedModel,
+  onSelectModel,
+}: {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+  models: AIModel[];
+  selectedModel: string | null;
+  onSelectModel: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const current = models.find((m) => m.id === selectedModel) ?? models[0];
+  const displayName = current?.model ?? "AI";
+
   return (
-    <button
-      type="button"
-      onClick={() => onChange(!enabled)}
-      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors ${
-        enabled
-          ? "bg-purple-100 text-purple-700 border border-purple-200"
-          : "border border-border text-muted-foreground hover:text-foreground"
-      }`}
-      title={enabled ? `AI analysis enabled${model ? ` (${model})` : ""}` : "AI analysis disabled"}
-    >
-      <Sparkles className={`h-3.5 w-3.5 ${enabled ? "text-purple-500" : ""}`} />
-      <span className="text-xs font-medium">AI</span>
-      {enabled && model && (
-        <span className="text-xs opacity-60">{model}</span>
-      )}
-      <div
-        className={`relative h-4 w-7 rounded-full transition-colors ${
-          enabled ? "bg-purple-500" : "bg-border"
+    <div ref={ref} className="relative inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => onChange(!enabled)}
+        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors ${
+          enabled
+            ? "bg-purple-100 text-purple-700 border border-purple-200"
+            : "border border-border text-muted-foreground hover:text-foreground"
         }`}
+        title={enabled ? `AI: ${displayName}` : "AI analysis disabled"}
       >
+        <Sparkles className={`h-3.5 w-3.5 ${enabled ? "text-purple-500" : ""}`} />
+        <span className="text-xs font-medium">AI</span>
         <div
-          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
-            enabled ? "translate-x-3.5" : "translate-x-0.5"
+          className={`relative h-4 w-7 rounded-full transition-colors ${
+            enabled ? "bg-purple-500" : "bg-border"
           }`}
-        />
-      </div>
-    </button>
+        >
+          <div
+            className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${
+              enabled ? "translate-x-3.5" : "translate-x-0.5"
+            }`}
+          />
+        </div>
+      </button>
+      {enabled && models.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-2 py-1 text-xs text-purple-700 hover:bg-purple-100 transition-colors"
+        >
+          {displayName}
+          {models.length > 1 && <ChevronDown className="h-3 w-3" />}
+        </button>
+      )}
+      {open && models.length > 1 && (
+        <div className="absolute top-full right-0 z-20 mt-1 min-w-[180px] rounded-lg border border-border bg-white shadow-lg overflow-hidden">
+          {models.map((m) => (
+            <button
+              type="button"
+              key={m.id}
+              onClick={() => { onSelectModel(m.id); setOpen(false); }}
+              className={`flex w-full items-center justify-between px-3 py-2 text-sm text-left hover:bg-muted transition-colors ${
+                m.id === selectedModel ? "font-medium text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <span>{m.model}</span>
+              <span className="text-xs opacity-50">{m.local ? "local" : m.provider}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -533,7 +587,12 @@ export default function HomePage() {
     queryKey: ["ai-info"],
     queryFn: () => api.aiInfo(),
   });
-  const aiModel = aiInfo?.model;
+  const availableModels: AIModel[] = aiInfo?.models ?? [];
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  // Set default model on first load
+  useEffect(() => {
+    if (aiInfo?.default && !selectedModelId) setSelectedModelId(aiInfo.default);
+  }, [aiInfo, selectedModelId]);
 
   const saveMutation = useMutation({
     mutationFn: ({ text, collectionIds, results }: { text: string; collectionIds?: string[]; results?: ReferenceResult[] }) =>
@@ -574,6 +633,7 @@ export default function HomePage() {
         limit: 10,
         explain: true,
         collection_ids: activeColIds,
+        model_id: selectedModelId ?? undefined,
       });
     } else {
       refMutation.reset();
@@ -624,6 +684,7 @@ export default function HomePage() {
         limit: 10,
         explain: true,
         collection_ids: search.collection_id ? [search.collection_id] : undefined,
+        model_id: selectedModelId ?? undefined,
       });
     }
   };
@@ -694,7 +755,7 @@ export default function HomePage() {
             )}
           </div>
           <div className="flex items-center justify-center gap-3">
-            <AIToggle enabled={aiEnabled} onChange={setAiEnabled} model={aiModel} />
+            <AIToggle enabled={aiEnabled} onChange={setAiEnabled} models={availableModels} selectedModel={selectedModelId} onSelectModel={setSelectedModelId} />
             <CollectionSelector
               collections={collections}
               selectedIds={selectedColIds}
@@ -792,7 +853,7 @@ export default function HomePage() {
               )}
             </div>
           </form>
-          <AIToggle enabled={aiEnabled} model={aiModel} onChange={(v) => {
+          <AIToggle enabled={aiEnabled} models={availableModels} selectedModel={selectedModelId} onSelectModel={setSelectedModelId} onChange={(v) => {
             setAiEnabled(v);
             setCachedResults(null);
             if (v) {

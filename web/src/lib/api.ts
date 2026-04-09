@@ -196,7 +196,12 @@ export const api = {
     },
   },
   aiInfo() {
-    return request<{ provider: string; model: string }>("/health/ai");
+    return request<{
+      provider: string;
+      model: string;
+      default: string;
+      models: { id: string; provider: string; model: string; local: boolean }[];
+    }>("/health/ai");
   },
   grobidHealth() {
     return request<{ status: string }>("/health/grobid");
