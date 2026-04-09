@@ -71,9 +71,18 @@ async def signup(
     session.commit()
     session.refresh(user)
 
-    # Send verification email
+    # Send verification email (don't fail signup if email fails)
     token = create_verification_token(user.id, settings)
-    await send_verification_email(email, token, settings)
+    try:
+        await send_verification_email(email, token, settings)
+    except Exception:
+        logger.warning("Failed to send verification email to %s", email, exc_info=True)
+        # In dev: log the link so the user can verify manually
+        logger.info(
+            "Verification link: %s/verify-email?token=%s",
+            settings.frontend_url,
+            token,
+        )
 
     return user
 

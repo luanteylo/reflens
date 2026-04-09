@@ -719,18 +719,34 @@ function TaskProgress({
   const processed = status.completed + status.failed;
   const pct = status.total > 0 ? Math.round((processed / status.total) * 100) : 0;
   const isDone = status.status === "completed" || status.status === "failed";
+  const lastDone = status.done_titles.length > 0
+    ? status.done_titles[status.done_titles.length - 1]
+    : null;
 
   return (
-    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-      <span>
-        {isDone
-          ? `${label}: ${status.completed} done${status.failed > 0 ? `, ${status.failed} failed` : ""}`
-          : `${label}... ${processed}/${status.total}`}
-      </span>
+    <div className="rounded-lg border border-border bg-white p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm">
+          {!isDone && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+          {isDone && status.failed === 0 && <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />}
+          {isDone && status.failed > 0 && <XCircle className="h-3.5 w-3.5 text-destructive" />}
+          <span className="font-medium">
+            {isDone
+              ? `${label}: ${status.completed} done${status.failed > 0 ? `, ${status.failed} failed` : ""}`
+              : `${label}... ${processed}/${status.total}`}
+          </span>
+        </div>
+        {isDone && (
+          <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {status.total > 0 && (
-        <div className="h-1 w-32 rounded-full bg-border overflow-hidden">
+        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
           <div
-            className={`h-full rounded-full transition-all duration-300 ${
+            className={`h-full rounded-full transition-all duration-500 ${
               isDone
                 ? status.failed > 0 ? "bg-red-500" : "bg-green-500"
                 : "bg-primary"
@@ -739,10 +755,22 @@ function TaskProgress({
           />
         </div>
       )}
-      {isDone && (
-        <button onClick={onDismiss} className="hover:text-foreground transition-colors">
-          <X className="h-3.5 w-3.5" />
-        </button>
+
+      {!isDone && lastDone && (
+        <p className="text-xs text-muted-foreground truncate">
+          <CheckCircle2 className="h-3 w-3 text-green-600 inline mr-1" />
+          {lastDone}
+        </p>
+      )}
+
+      {!isDone && processed === 0 && status.total > 0 && (
+        <p className="text-xs text-muted-foreground animate-pulse">
+          Processing first paper...
+        </p>
+      )}
+
+      {status.error && (
+        <p className="text-xs text-destructive truncate">{status.error}</p>
       )}
     </div>
   );
@@ -1217,22 +1245,24 @@ export default function LibraryPage() {
                     )}
                   </div>
                 )}
-                {(summarizeAll.taskId && summarizeAll.status) && (
-                  <TaskProgress
-                    label="Summarizing"
-                    status={summarizeAll.status}
-                    onDismiss={summarizeAll.dismiss}
-                  />
-                )}
-                {(tagAll.taskId && tagAll.status) && (
-                  <TaskProgress
-                    label="Tagging"
-                    status={tagAll.status}
-                    onDismiss={tagAll.dismiss}
-                  />
-                )}
               </div>
             </div>
+
+            {/* Task progress */}
+            {(summarizeAll.taskId && summarizeAll.status) && (
+              <TaskProgress
+                label="Summarizing"
+                status={summarizeAll.status}
+                onDismiss={summarizeAll.dismiss}
+              />
+            )}
+            {(tagAll.taskId && tagAll.status) && (
+              <TaskProgress
+                label="Tagging"
+                status={tagAll.status}
+                onDismiss={tagAll.dismiss}
+              />
+            )}
 
             {/* Papers list */}
             {isLoading ? (
