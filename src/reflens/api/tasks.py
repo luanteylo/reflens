@@ -75,6 +75,7 @@ async def run_bulk_task(
     engine: RefLensEngine,
     kind: str,
     user_id: str,
+    model_id: str | None = None,
 ):
     task = registry.get(task_id)
     if task is None:
@@ -94,9 +95,9 @@ async def run_bulk_task(
         for paper in pending:
             try:
                 if kind == "summarize-all":
-                    await engine.summarize_paper(paper.id, user_id)
+                    await engine.summarize_paper(paper.id, user_id, model_id=model_id)
                 else:
-                    await engine.tag_paper(paper.id, user_id)
+                    await engine.tag_paper(paper.id, user_id, model_id=model_id)
                 task.completed += 1
                 task.done_titles.append(paper.title)
                 consecutive_failures = 0

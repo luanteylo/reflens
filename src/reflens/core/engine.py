@@ -136,7 +136,7 @@ class RefLensEngine:
         finally:
             session.close()
 
-    async def summarize_paper(self, paper_id: str, user_id: str = "local") -> Paper:
+    async def summarize_paper(self, paper_id: str, user_id: str = "local", model_id: str | None = None) -> Paper:
         """Generate AI summary for a paper."""
         session = self._get_session()
         try:
@@ -145,7 +145,8 @@ class RefLensEngine:
             if paper is None:
                 raise ValueError(f"Paper not found: {paper_id}")
 
-            summary = await self.ai.summarize(
+            ai = self.get_ai(model_id)
+            summary = await ai.summarize(
                 title=paper.title,
                 abstract=paper.abstract or "",
                 full_text=paper.full_text or "",
@@ -166,7 +167,7 @@ class RefLensEngine:
         finally:
             session.close()
 
-    async def tag_paper(self, paper_id: str, user_id: str = "local") -> list[str]:
+    async def tag_paper(self, paper_id: str, user_id: str = "local", model_id: str | None = None) -> list[str]:
         """Generate AI tags for a paper."""
         session = self._get_session()
         try:
@@ -175,7 +176,8 @@ class RefLensEngine:
             if paper is None:
                 raise ValueError(f"Paper not found: {paper_id}")
 
-            generated = await self.ai.generate_tags(
+            ai = self.get_ai(model_id)
+            generated = await ai.generate_tags(
                 title=paper.title,
                 abstract=paper.abstract or "",
                 sections=paper.sections or {},

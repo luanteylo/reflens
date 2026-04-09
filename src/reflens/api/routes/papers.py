@@ -142,25 +142,31 @@ async def upload_paper(
 
 @router.post("/summarize-all", response_model=TaskCreatedResponse)
 async def summarize_all(
+    model_id: str | None = None,
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
     registry = get_task_registry()
     task = registry.create("summarize-all")
     if task.status.value == "pending":
-        asyncio.create_task(run_bulk_task(task.id, registry, engine, "summarize-all", user_id))
+        asyncio.create_task(
+            run_bulk_task(task.id, registry, engine, "summarize-all", user_id, model_id)
+        )
     return TaskCreatedResponse(task_id=task.id)
 
 
 @router.post("/tag-all", response_model=TaskCreatedResponse)
 async def tag_all(
+    model_id: str | None = None,
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
     registry = get_task_registry()
     task = registry.create("tag-all")
     if task.status.value == "pending":
-        asyncio.create_task(run_bulk_task(task.id, registry, engine, "tag-all", user_id))
+        asyncio.create_task(
+            run_bulk_task(task.id, registry, engine, "tag-all", user_id, model_id)
+        )
     return TaskCreatedResponse(task_id=task.id)
 
 

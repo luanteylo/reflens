@@ -145,11 +145,13 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
-    summarizeAll() {
-      return request<TaskCreatedResponse>("/papers/summarize-all", { method: "POST" });
+    summarizeAll(modelId?: string) {
+      const params = modelId ? `?model_id=${encodeURIComponent(modelId)}` : "";
+      return request<TaskCreatedResponse>(`/papers/summarize-all${params}`, { method: "POST" });
     },
-    tagAll() {
-      return request<TaskCreatedResponse>("/papers/tag-all", { method: "POST" });
+    tagAll(modelId?: string) {
+      const params = modelId ? `?model_id=${encodeURIComponent(modelId)}` : "";
+      return request<TaskCreatedResponse>(`/papers/tag-all${params}`, { method: "POST" });
     },
   },
   tasks: {

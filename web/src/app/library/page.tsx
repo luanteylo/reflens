@@ -1010,6 +1010,16 @@ export default function LibraryPage() {
     },
   });
 
+  const { data: aiInfo } = useQuery({
+    queryKey: ["ai-info"],
+    queryFn: () => api.aiInfo(),
+  });
+  const availableModels = aiInfo?.models ?? [];
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  useEffect(() => {
+    if (aiInfo?.default && !selectedModelId) setSelectedModelId(aiInfo.default);
+  }, [aiInfo, selectedModelId]);
+
   const deleteMutation = useDeletePaper();
   const summarizeAll = useBulkAction("summarize-all");
   const tagAll = useBulkAction("tag-all");
@@ -1165,14 +1175,29 @@ export default function LibraryPage() {
                 <CollectionActions selectedIds={selectedIds} collections={collections} />
 
                 {selectedIds.size > 0 && (
-                  <button
-                    onClick={() => summarizeAll.trigger()}
-                    disabled={summarizeAll.isPending || summarizeAll.isActive}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-                  >
-                    <Sparkles className="h-3 w-3" />
-                    Summarize
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => summarizeAll.trigger(selectedModelId ?? undefined)}
+                      disabled={summarizeAll.isPending || summarizeAll.isActive}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      Summarize
+                    </button>
+                    {availableModels.length > 1 && (
+                      <select
+                        value={selectedModelId ?? ""}
+                        onChange={(e) => setSelectedModelId(e.target.value)}
+                        className="rounded-full border border-border bg-white px-2 py-1 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.model} ({m.local ? "local" : m.provider})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 )}
                 {(summarizeAll.taskId && summarizeAll.status) && (
                   <TaskProgress
