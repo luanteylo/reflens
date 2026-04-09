@@ -6,7 +6,7 @@ import { Search, Loader2, ChevronDown, ChevronRight, FolderOpen, Bookmark, X, Cl
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
 import { useSearch } from "@/hooks/use-search";
-import type { ReferenceResult, SearchResultItem, PaperCollection, SavedSearch } from "@/lib/types";
+import type { AISummaryResponse, ReferenceResult, SearchResultItem, PaperCollection, SavedSearch, PaperSummary } from "@/lib/types";
 
 function StanceBadge({ stance }: { stance: string | null | undefined }) {
   if (!stance) return null;
@@ -99,6 +99,178 @@ const CitePanel = forwardRef<{ toggle: () => void }, { paperId: string }>(functi
 });
 
 // Unified result card with optional per-result AI analysis
+function ExpandedPaperDetails({ paper, modelId }: { paper: PaperSummary; modelId?: string }) {
+  const [summaries, setSummaries] = useState<AISummaryResponse[] | null>(null);
+  const [loadingSummaries, setLoadingSummaries] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [prompt, setPrompt] = useState("");
+
+  // Load summaries on mount
+  useEffect(() => {
+    setLoadingSummaries(true);
+    api.papers.summaries(paper.id)
+      .then(setSummaries)
+      .catch(() => setSummaries([]))
+      .finally(() => setLoadingSummaries(false));
+  }, [paper.id]);
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      const result = await api.papers.summarize(paper.id, modelId, prompt || undefined);
+      setSummaries((prev) => [result, ...(prev || [])]);
+      setPrompt("");
+      setShowPrompt(false);
+    } catch { /* ignore */ }
+    setGenerating(false);
+  };
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-border pt-3">
+      {/* Authors */}
+      {paper.authors.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-0.5">Authors</p>
+          <p className="text-sm text-foreground/80">
+            {paper.authors.map((a) => a.name).join(", ")}
+          </p>
+        </div>
+      )}
+
+      {/* Summaries */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-xs font-medium text-muted-foreground">AI Summaries</p>
+          <div className="flex items-center gap-2">
+            {!generating && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowPrompt(!showPrompt)}
+                  className={`text-xs transition-colors ${
+                    showPrompt ? "text-purple-600" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  +prompt
+                </button>
+                <button
+                  onClick={handleGenerate}
+                  className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 transition-colors"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Generate
+                </button>
+              </>
+            )}
+            {generating && (
+              <span className="inline-flex items-center gap-1 text-xs text-purple-600">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generating...
+              </span>
+            )}
+          </div>
+        </div>
+
+        {showPrompt && (
+          <input
+            type="text"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="e.g. Focus on methodology and statistical methods..."
+            className="w-full mb-2 rounded-lg border border-border bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            autoFocus
+          />
+        )}
+
+        {loadingSummaries && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Loading summaries...
+          </div>
+        )}
+
+        {summaries && summaries.length === 0 && !loadingSummaries && (
+          <p className="text-xs text-muted-foreground italic py-1">
+            No summaries yet. Click &quot;Generate&quot; to create one.
+          </p>
+        )}
+
+        {summaries && summaries.length > 0 && (
+          <div className="space-y-2">
+            {summaries.map((s) => (
+              <SummaryDetail key={s.id} summary={s} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SummaryDetail({ summary }: { summary: AISummaryResponse }) {
+  const [open, setOpen] = useState(true);
+  const date = new Date(summary.created_at);
+
+  return (
+    <div className="rounded-md border border-border bg-muted/20 overflow-hidden">
+      <div
+        className="flex items-center justify-between px-3 py-1.5 cursor-pointer hover:bg-muted/40 transition-colors"
+        onClick={() => setOpen(!open)}
+      >
+        <div className="flex items-center gap-2 text-xs">
+          {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          <span className="font-medium text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">{summary.model_name}</span>
+          <span className="text-muted-foreground">
+            {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {summary.user_prompt && (
+            <span className="text-muted-foreground italic truncate max-w-[200px]" title={summary.user_prompt}>
+              &quot;{summary.user_prompt}&quot;
+            </span>
+          )}
+        </div>
+      </div>
+      {open && (
+        <div className="px-3 pb-3 space-y-2 border-t border-border">
+          {summary.overview && (
+            <div className="pt-2">
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Overview</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.overview}</p>
+            </div>
+          )}
+          {summary.key_contributions && summary.key_contributions.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Key Contributions</p>
+              <ul className="list-disc list-inside text-sm text-foreground/80 space-y-0.5">
+                {summary.key_contributions.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            </div>
+          )}
+          {summary.methodology && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Methodology</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.methodology}</p>
+            </div>
+          )}
+          {summary.findings && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Findings</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.findings}</p>
+            </div>
+          )}
+          {summary.limitations && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Limitations</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.limitations}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId }: {
   item: ReferenceResult | SearchResultItem;
   query: string;
@@ -191,30 +363,7 @@ function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId 
 
         {/* Expanded details */}
         {expanded && (
-          <div className="mt-3 space-y-2 border-t border-border pt-3">
-            {/* AI Summary */}
-            {paper.ai_summary && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-0.5">AI Summary</p>
-                <p className="text-sm text-foreground/80 leading-relaxed">{paper.ai_summary}</p>
-              </div>
-            )}
-
-            {/* Authors with affiliations */}
-            {paper.authors.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-0.5">Authors</p>
-                <p className="text-sm text-foreground/80">
-                  {paper.authors.map((a) => a.name).join(", ")}
-                </p>
-              </div>
-            )}
-
-            {/* Full abstract if not shown above */}
-            {!paper.abstract && paper.ai_summary && (
-              <p className="text-xs text-muted-foreground italic">No abstract extracted</p>
-            )}
-          </div>
+          <ExpandedPaperDetails paper={paper} modelId={modelId} />
         )}
 
         {/* Action buttons */}
