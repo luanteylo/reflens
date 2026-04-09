@@ -57,12 +57,17 @@ async def reflens_find_references(
         tag_ids: Optional list of tag IDs to filter by.
     """
     engine = _get_engine(ctx)
-    results = await engine.find_references(text, limit=limit, tag_ids=tag_ids)
+    data = await engine.find_references(text, limit=limit, tag_ids=tag_ids)
+    results = data.get("results", []) if isinstance(data, dict) else data
     if not results:
         return "No matching references found."
     lines = [f"Found {len(results)} reference(s):\n"]
     for r in results:
         lines.append(_format_paper_short(r["paper"], r["score"]))
+        if r.get("explanation"):
+            lines.append(f"  Relevance: {r['explanation']}")
+        if r.get("stance"):
+            lines.append(f"  Stance: {r['stance']}")
     return "\n".join(lines)
 
 
