@@ -541,6 +541,8 @@ export default function HomePage() {
   const [history, setHistory] = useState<string[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [bulkBibtexCopied, setBulkBibtexCopied] = useState(false);
+  const [searchTime, setSearchTime] = useState<number | null>(null);
+  const searchStartRef = useRef<number>(0);
   const historyRef = useRef<HTMLDivElement>(null);
   const refMutation = useFindReferences();
   const qc = useQueryClient();
@@ -626,6 +628,8 @@ export default function HomePage() {
     setSaved(false);
     setCachedResults(null);
     setSelectedPaperIds(new Set());
+    setSearchTime(null);
+    searchStartRef.current = performance.now();
     if (useAi) {
       setDebouncedQuery("");
       refMutation.mutate({
@@ -695,6 +699,17 @@ export default function HomePage() {
 
   // Regular results
   const regularResults = regularSearchData?.results ?? null;
+
+  // Stop timer when results arrive
+  useEffect(() => {
+    if (searchStartRef.current > 0 && !isAiSearching && !regularSearchLoading) {
+      const elapsed = (performance.now() - searchStartRef.current) / 1000;
+      if (aiResults || regularResults) {
+        setSearchTime(elapsed);
+        searchStartRef.current = 0;
+      }
+    }
+  }, [isAiSearching, regularSearchLoading, aiResults, regularResults]);
 
   // Landing state: centered logo + search
   if (!hasSearched) {
@@ -897,6 +912,7 @@ export default function HomePage() {
                     <Sparkles className="h-3 w-3 text-purple-500 inline mr-1" />
                     {aiResults.length} reference{aiResults.length !== 1 ? "s" : ""} found
                     {activeColIds ? ` in ${activeColIds.length} collection${activeColIds.length !== 1 ? "s" : ""}` : ""}
+                    {searchTime != null && <span className="opacity-50"> ({searchTime.toFixed(2)}s)</span>}
                   </p>
                   <div className="flex items-center gap-2">
                     {selectedPaperIds.size > 0 && (
@@ -966,6 +982,7 @@ export default function HomePage() {
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-muted-foreground">
                     {regularResults.length} result{regularResults.length !== 1 ? "s" : ""} for &quot;{regularSearchData?.query}&quot;
+                    {searchTime != null && <span className="opacity-50"> ({searchTime.toFixed(2)}s)</span>}
                   </p>
                   {selectedPaperIds.size > 0 && (
                     <button
