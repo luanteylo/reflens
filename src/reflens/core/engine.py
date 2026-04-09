@@ -414,6 +414,16 @@ class RefLensEngine:
         finally:
             session.close()
 
+    def _keyword_score(self, query: str, paper) -> float:
+        """Simple keyword matching score based on query terms in title/abstract."""
+        terms = [t.lower() for t in query.split() if len(t) > 2]
+        if not terms:
+            return 0.0
+
+        text = f"{paper.title} {paper.abstract or ''}".lower()
+        matches = sum(1 for t in terms if t in text)
+        return matches / len(terms) if terms else 0.0
+
     def search_papers(
         self,
         query: str,
@@ -421,58 +431,80 @@ class RefLensEngine:
         limit: int = 20,
         collection_ids: list[str] | None = None,
     ) -> list[dict]:
-        """Semantic search with SQL ILIKE fallback.
+        """Hybrid search: semantic embeddings + keyword matching + abstract boost.
 
         Returns list of dicts with keys {"paper": Paper, "score": float | None}.
         """
+        from reflens.search.embedder import CHUNK_BOOST
+
         allowed_ids: set[str] | None = None
         if collection_ids:
             allowed_ids = self._resolve_collection_paper_ids(collection_ids)
             if not allowed_ids:
                 return []
 
-        # Try semantic search first
+        semantic_scores: dict[str, float] = {}
+        keyword_scores: dict[str, float] = {}
+
+        # 1. Semantic search with chunk-type boosting
         try:
             if self.embedding_store.is_available() and self.embedding_store.count() > 0:
-                hits = self.embedding_store.search(query, n_results=limit * 3)
+                hits = self.embedding_store.search(query, n_results=limit * 5)
                 if hits:
-                    # Deduplicate by paper_id, keep best (lowest) distance
-                    best: dict[str, float] = {}
+                    # Aggregate scores per paper with chunk-type boost
+                    paper_hits: dict[str, list[tuple[float, str]]] = {}
                     for h in hits:
-                        if h.paper_id not in best or h.distance < best[h.paper_id]:
-                            best[h.paper_id] = h.distance
-                    # Convert distance to similarity score (0-1)
-                    scored = {
-                        pid: 1.0 - (dist / 2.0) for pid, dist in best.items()
-                    }
-                    if allowed_ids is not None:
-                        scored = {pid: s for pid, s in scored.items() if pid in allowed_ids}
-                    # Load papers from DB and filter by user_id
-                    session = self._get_session()
-                    try:
-                        repo = PaperRepository(session)
-                        results = []
-                        for pid in sorted(scored, key=scored.get, reverse=True):
-                            paper = repo.get_with_relations(pid, user_id)
-                            if paper:
-                                results.append({"paper": paper, "score": scored[pid]})
-                            if len(results) >= limit:
-                                break
-                        if results:
-                            return results
-                    finally:
-                        session.close()
-        except Exception:
-            logger.warning("Semantic search failed, falling back to SQL", exc_info=True)
+                        if h.paper_id not in paper_hits:
+                            paper_hits[h.paper_id] = []
+                        paper_hits[h.paper_id].append((h.distance, h.chunk_type))
 
-        # Fallback to SQL ILIKE
+                    for pid, ph in paper_hits.items():
+                        # Best hit with boost
+                        best_score = 0.0
+                        for dist, ctype in ph:
+                            similarity = 1.0 - (dist / 2.0)
+                            boost = CHUNK_BOOST.get(ctype, 1.0)
+                            boosted = min(1.0, similarity * boost)
+                            best_score = max(best_score, boosted)
+                        # Bonus for multiple chunk matches (paper covers topic broadly)
+                        multi_match_bonus = min(0.1, len(ph) * 0.02)
+                        semantic_scores[pid] = min(1.0, best_score + multi_match_bonus)
+        except Exception:
+            logger.warning("Semantic search failed", exc_info=True)
+
+        # 2. Keyword search (SQL ILIKE)
         session = self._get_session()
         try:
             repo = PaperRepository(session)
-            papers = repo.search_by_title(query, user_id)
-            if allowed_ids is not None:
-                papers = [p for p in papers if p.id in allowed_ids]
-            return [{"paper": p, "score": None} for p in papers[:limit]]
+            kw_papers = repo.search_by_title(query, user_id)
+            for p in kw_papers:
+                keyword_scores[p.id] = self._keyword_score(query, p)
+        finally:
+            session.close()
+
+        # 3. Combine scores: 70% semantic + 30% keyword
+        all_pids = set(semantic_scores.keys()) | set(keyword_scores.keys())
+        if allowed_ids is not None:
+            all_pids &= allowed_ids
+
+        combined: dict[str, float] = {}
+        for pid in all_pids:
+            sem = semantic_scores.get(pid, 0.0)
+            kw = keyword_scores.get(pid, 0.0)
+            combined[pid] = sem * 0.7 + kw * 0.3
+
+        # 4. Load papers sorted by combined score
+        session = self._get_session()
+        try:
+            repo = PaperRepository(session)
+            results = []
+            for pid in sorted(combined, key=combined.get, reverse=True):
+                paper = repo.get_with_relations(pid, user_id)
+                if paper:
+                    results.append({"paper": paper, "score": combined[pid]})
+                if len(results) >= limit:
+                    break
+            return results
         finally:
             session.close()
 
@@ -641,79 +673,89 @@ class RefLensEngine:
         tag_ids: list[str] | None = None,
         collection_ids: list[str] | None = None,
         model_id: str | None = None,
-    ) -> list[dict]:
+    ) -> dict:
         """Find papers that could serve as references for the given text.
 
-        Returns list of dicts with keys:
-        {"paper": Paper, "score": float, "explanation": str | None}
+        Uses hybrid search (semantic + keyword) with abstract boosting.
         """
-        hits = self.embedding_store.search(text, n_results=limit * 3)
-        if not hits:
-            return []
+        from reflens.search.embedder import CHUNK_BOOST
 
-        # Deduplicate by paper_id, keep best distance
-        best: dict[str, float] = {}
-        for h in hits:
-            if h.paper_id not in best or h.distance < best[h.paper_id]:
-                best[h.paper_id] = h.distance
+        # Use the hybrid search approach
+        results = self.search_papers(
+            query=text,
+            user_id=user_id,
+            limit=limit,
+            collection_ids=collection_ids,
+        )
 
-        scored = {pid: 1.0 - (dist / 2.0) for pid, dist in best.items()}
+        # Filter by tags if provided
+        if tag_ids:
+            session = self._get_session()
+            try:
+                repo = PaperRepository(session)
+                allowed = repo.get_paper_ids_by_tags(tag_ids, user_id)
+                results = [r for r in results if r["paper"].id in allowed]
+            finally:
+                session.close()
 
+        # AI explain if requested
+        ai_warning = None
+        assessments = [None] * len(results)
+        if explain and results:
+            try:
+                paper_inputs = [
+                    {
+                        "title": r["paper"].title,
+                        "abstract": r["paper"].abstract or "",
+                        "text": r["paper"].full_text or "",
+                    }
+                    for r in results
+                ]
+                ai = self.get_ai(model_id, user_id)
+                assessments = await ai.explain_relevance_batch(
+                    text, paper_inputs
+                )
+                self._log_usage(ai, user_id)
+            except Exception as exc:
+                logger.warning("Failed to explain relevance", exc_info=True)
+                ai_warning = str(exc)
+
+        return {
+            "results": [
+                {
+                    "paper": r["paper"],
+                    "score": r["score"],
+                    "explanation": a["explanation"] if a else None,
+                    "stance": a["stance"] if a else None,
+                }
+                for r, a in zip(results, assessments)
+            ],
+            "warning": ai_warning,
+        }
+
+    async def explain_single(
+        self,
+        query: str,
+        paper_id: str,
+        user_id: str = "local",
+        model_id: str | None = None,
+    ) -> dict:
+        """Explain relevance for a single paper. Returns {stance, explanation}."""
         session = self._get_session()
         try:
             repo = PaperRepository(session)
-
-            if collection_ids:
-                allowed = self._resolve_collection_paper_ids(collection_ids)
-                scored = {pid: s for pid, s in scored.items() if pid in allowed}
-
-            if tag_ids:
-                allowed = repo.get_paper_ids_by_tags(tag_ids, user_id)
-                scored = {pid: s for pid, s in scored.items() if pid in allowed}
-
-            # Load top papers
-            papers = []
-            for pid in sorted(scored, key=scored.get, reverse=True):
-                paper = repo.get_with_relations(pid, user_id)
-                if paper:
-                    papers.append(paper)
-                if len(papers) >= limit:
-                    break
-
-            # Batch explain if requested
-            ai_warning = None
-            assessments = [None] * len(papers)
-            if explain and papers:
-                try:
-                    paper_inputs = [
-                        {
-                            "title": p.title,
-                            "abstract": p.abstract or "",
-                            "text": p.full_text or "",
-                        }
-                        for p in papers
-                    ]
-                    ai = self.get_ai(model_id, user_id)
-                    assessments = await ai.explain_relevance_batch(
-                        text, paper_inputs
-                    )
-                    self._log_usage(ai, user_id)
-                except Exception as exc:
-                    logger.warning("Failed to explain relevance", exc_info=True)
-                    ai_warning = str(exc)
-
-            return {
-                "results": [
-                    {
-                        "paper": paper,
-                        "score": scored[paper.id],
-                        "explanation": a["explanation"] if a else None,
-                        "stance": a["stance"] if a else None,
-                    }
-                    for paper, a in zip(papers, assessments)
-                ],
-                "warning": ai_warning,
-            }
+            paper = repo.get_with_relations(paper_id, user_id)
+            if paper is None:
+                raise ValueError("Paper not found")
+            ai = self.get_ai(model_id, user_id)
+            result = await ai.explain_relevance(
+                query=query,
+                paper_title=paper.title,
+                paper_abstract=paper.abstract or "",
+                paper_text=paper.full_text or "",
+            )
+            self._log_usage(ai, user_id)
+            return result
         finally:
             session.close()
 

@@ -1,13 +1,13 @@
 """Split paper text into embeddable chunks.
 
-The all-MiniLM-L6-v2 model has a ~256 token context window (~1200 chars).
-We prepend the paper title to give document-level context to each chunk.
+BGE models handle ~512 tokens (~2000 chars). We create specialized chunks
+with different weights: abstract chunks get boosted in search scoring.
 """
 
 from dataclasses import dataclass
 
-CHUNK_SIZE = 1200
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 2000
+CHUNK_OVERLAP = 300
 
 
 @dataclass
@@ -44,34 +44,47 @@ def chunk_paper(
     """Split a paper into embeddable chunks.
 
     Strategy:
-    1. Abstract (if exists): single chunk with title prefix
-    2. Sections (if dict exists): one chunk per section, long sections split
-    3. Full text fallback: sliding window with title on first chunk
-    4. Title-only fallback: single chunk
+    1. Title + abstract combined (highest value for search)
+    2. Abstract alone (for matching claims against abstracts)
+    3. Key sections: introduction, conclusion, results (high signal)
+    4. Other sections
+    5. Full text fallback
     """
     chunks: list[PaperChunk] = []
 
-    # 1. Abstract chunk
+    # 1. Title + Abstract combined chunk (best for topic matching)
     if abstract and abstract.strip():
+        combined = f"{title}\n\nAbstract: {abstract.strip()}"
         chunks.append(PaperChunk(
             chunk_id=f"{paper_id}::abstract::0",
             paper_id=paper_id,
-            text=f"{title}\n\n{abstract.strip()}",
+            text=combined,
             chunk_type="abstract",
             index=0,
         ))
 
-    # 2. Section chunks
+    # 2. Section chunks with title context
     if sections:
+        # Prioritize high-signal sections first
+        priority_keys = ["introduction", "conclusion", "results", "discussion", "abstract"]
+        ordered = []
+        for key in priority_keys:
+            for name, text in sections.items():
+                if key in name.lower() and (name, text) not in ordered:
+                    ordered.append((name, text))
+        for name, text in sections.items():
+            if (name, text) not in ordered:
+                ordered.append((name, text))
+
         idx = 0
-        for section_name, section_text in sections.items():
+        for section_name, section_text in ordered:
             if not section_text or not section_text.strip():
                 continue
             prefix = f"{title} - {section_name}\n\n"
             text = section_text.strip()
             if len(prefix + text) > CHUNK_SIZE * 1.25:
                 windows = _sliding_window(text)
-                for wi, window in enumerate(windows):
+                for window in windows:
                     chunks.append(PaperChunk(
                         chunk_id=f"{paper_id}::section::{idx}",
                         paper_id=paper_id,
@@ -90,7 +103,7 @@ def chunk_paper(
                 ))
                 idx += 1
 
-    # 3. Full text fallback (only if no sections produced chunks beyond abstract)
+    # 3. Full text fallback (only if no sections)
     section_chunks = [c for c in chunks if c.chunk_type == "section"]
     if not section_chunks and full_text and full_text.strip():
         windows = _sliding_window(full_text.strip())

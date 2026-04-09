@@ -8,12 +8,21 @@ from reflens.search.chunker import chunk_paper
 
 logger = logging.getLogger(__name__)
 
+# Boost factors for chunk types (abstract matches are most valuable)
+CHUNK_BOOST = {
+    "abstract": 1.5,
+    "section": 1.0,
+    "fulltext": 0.8,
+    "title": 1.2,
+}
+
 
 @dataclass
 class SearchHit:
     paper_id: str
     distance: float
     chunk_text: str
+    chunk_type: str = "unknown"
 
 
 class EmbeddingStore:
@@ -23,7 +32,7 @@ class EmbeddingStore:
     heavy imports at module load time.
     """
 
-    def __init__(self, chroma_path: Path, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, chroma_path: Path, model_name: str = "BAAI/bge-small-en-v1.5"):
         self._chroma_path = chroma_path
         self._model_name = model_name
         self._client = None
@@ -81,8 +90,13 @@ class EmbeddingStore:
         if self._collection.count() == 0:
             return []
 
+        # For BGE models, prepend instruction for better retrieval
+        search_query = query
+        if "bge" in self._model_name.lower():
+            search_query = f"Represent this sentence for searching relevant passages: {query}"
+
         results = self._collection.query(
-            query_texts=[query],
+            query_texts=[search_query],
             n_results=min(n_results, self._collection.count()),
         )
 
@@ -93,6 +107,7 @@ class EmbeddingStore:
                     paper_id=results["metadatas"][0][i]["paper_id"],
                     distance=results["distances"][0][i],
                     chunk_text=results["documents"][0][i],
+                    chunk_type=results["metadatas"][0][i].get("chunk_type", "unknown"),
                 ))
         return hits
 

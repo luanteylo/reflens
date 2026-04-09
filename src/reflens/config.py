@@ -27,7 +27,7 @@ class Settings(BaseSettings):
         description="Comma-separated list of available models, e.g. ollama/mistral,ollama/llama3.1,claude/claude-sonnet-4-6",
     )
     embedding_model: str = Field(
-        default="all-MiniLM-L6-v2",
+        default="BAAI/bge-small-en-v1.5",
         description="sentence-transformers model for embeddings",
     )
 

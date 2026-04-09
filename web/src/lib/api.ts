@@ -262,6 +262,13 @@ export const api = {
     }
     return request<SearchResponse>(`/search?${params.toString()}`);
   },
+  explainSingle(query: string, paperId: string, modelId?: string) {
+    return request<{ stance: string; explanation: string }>("/search/explain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, paper_id: paperId, model_id: modelId ?? null }),
+    });
+  },
   findReferences(body: ReferencesRequest, signal?: AbortSignal) {
     return request<ReferencesResponse>("/search/references", {
       method: "POST",

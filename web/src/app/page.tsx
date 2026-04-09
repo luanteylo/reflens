@@ -8,15 +8,15 @@ import { api, getPdfUrl } from "@/lib/api";
 import { useSearch } from "@/hooks/use-search";
 import type { ReferenceResult, SearchResultItem, PaperCollection, SavedSearch } from "@/lib/types";
 
-function StanceBadge({ stance }: { stance: ReferenceResult["stance"] }) {
+function StanceBadge({ stance }: { stance: string | null | undefined }) {
   if (!stance) return null;
-  const styles = {
-    supports: "text-green-700",
-    contradicts: "text-red-700",
-    neutral: "text-gray-500",
+  const styles: Record<string, string> = {
+    supports: "text-green-700 bg-green-50 border-green-200",
+    contradicts: "text-red-700 bg-red-50 border-red-200",
+    neutral: "text-gray-600 bg-gray-50 border-gray-200",
   };
   return (
-    <span className={`text-xs font-medium ${styles[stance]}`}>
+    <span className={`text-xs font-medium rounded-full px-2 py-0.5 border ${styles[stance] || styles.neutral}`}>
       {stance}
     </span>
   );
@@ -98,12 +98,33 @@ const CitePanel = forwardRef<{ toggle: () => void }, { paperId: string }>(functi
   );
 });
 
-// AI-powered result card (with explanation + stance)
-function AIResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item: ReferenceResult; onOpenPdf: (id: string, title: string) => void; selected: boolean; onToggleSelect: () => void }) {
+// Unified result card with optional per-result AI analysis
+function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId }: {
+  item: ReferenceResult | SearchResultItem;
+  query: string;
+  onOpenPdf: (id: string, title: string) => void;
+  selected: boolean;
+  onToggleSelect: () => void;
+  modelId?: string;
+}) {
   const { paper } = item;
   const authors = paper.authors.map((a) => a.name).join(", ");
   const pct = item.score != null ? Math.round(item.score * 100) : null;
   const citePanelRef = useRef<{ toggle: () => void }>(null);
+  const itemWithAI = item as ReferenceResult;
+  const [analysis, setAnalysis] = useState<{ stance: string; explanation: string } | null>(
+    itemWithAI.stance ? { stance: itemWithAI.stance, explanation: itemWithAI.explanation || "" } : null
+  );
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    try {
+      const result = await api.explainSingle(query, paper.id, modelId);
+      setAnalysis(result);
+    } catch { /* ignore */ }
+    setAnalyzing(false);
+  };
 
   return (
     <div className="max-w-2xl py-4 flex gap-3">
@@ -122,86 +143,21 @@ function AIResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item: Ref
         {authors}
         {paper.year ? ` · ${paper.year}` : ""}
         {pct != null && <span className="text-primary">{pct}% match</span>}
-        <StanceBadge stance={item.stance} />
+        {analysis && <StanceBadge stance={analysis.stance} />}
       </div>
       <h3 className="text-lg text-primary mt-0.5 leading-snug">
         {paper.title}
       </h3>
-      {item.explanation && (
-        <p className="text-sm text-foreground/70 mt-1 leading-relaxed">
-          {item.explanation}
-        </p>
-      )}
-      {paper.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {paper.tags.map((t) => (
-            <span
-              key={t.id}
-              className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
-            >
-              {t.tag_name}
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center gap-3 mt-2">
-        <button
-          onClick={() => citePanelRef.current?.toggle()}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Copy className="h-3 w-3" />
-          Cite
-        </button>
-        <button
-          onClick={() => onOpenPdf(paper.id, paper.title)}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <FileText className="h-3 w-3" />
-          PDF
-        </button>
-      </div>
-      <CitePanel ref={citePanelRef} paperId={paper.id} />
-      </div>
-    </div>
-  );
-}
-
-// Regular search result card (with abstract context)
-function SearchResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item: SearchResultItem; onOpenPdf: (id: string, title: string) => void; selected: boolean; onToggleSelect: () => void }) {
-  const { paper } = item;
-  const authors = paper.authors.map((a) => a.name).join(", ");
-  const pct = item.score != null ? Math.round(item.score * 100) : null;
-  const citePanelRef = useRef<{ toggle: () => void }>(null);
-
-  return (
-    <div className="max-w-2xl py-4 flex gap-3">
-      <button
-        onClick={onToggleSelect}
-        className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-          selected
-            ? "border-primary bg-primary text-white"
-            : "border-border hover:border-primary/50"
-        }`}
-      >
-        {selected && <Check className="h-3 w-3" />}
-      </button>
-      <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {authors}
-        {paper.year ? ` · ${paper.year}` : ""}
-        {pct != null && <span className="text-primary">{pct}% relevance</span>}
-      </div>
-      <h3 className="text-lg text-primary mt-0.5 leading-snug">
-        {paper.title}
-      </h3>
-      {paper.abstract && (
+      {/* Show abstract context */}
+      {paper.abstract && !analysis && (
         <p className="text-sm text-foreground/70 mt-1 leading-relaxed line-clamp-3">
           {paper.abstract}
         </p>
       )}
-      {paper.ai_summary && !paper.abstract && (
-        <p className="text-sm text-foreground/70 mt-1 leading-relaxed line-clamp-3">
-          {paper.ai_summary}
+      {/* Show AI analysis */}
+      {analysis && analysis.explanation && (
+        <p className="text-sm text-foreground/70 mt-1 leading-relaxed">
+          {analysis.explanation}
         </p>
       )}
       {paper.tags.length > 0 && (
@@ -217,6 +173,16 @@ function SearchResultCard({ item, onOpenPdf, selected, onToggleSelect }: { item:
         </div>
       )}
       <div className="flex items-center gap-3 mt-2">
+        {!analysis && (
+          <button
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 transition-colors"
+          >
+            {analyzing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            {analyzing ? "Analyzing..." : "Analyze"}
+          </button>
+        )}
         <button
           onClick={() => citePanelRef.current?.toggle()}
           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -1439,7 +1405,7 @@ export default function HomePage() {
                 </div>
                 <div className="divide-y divide-border">
                   {aiResults.map((item) => (
-                    <AIResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} />
+                    <ResultCard key={item.paper.id} item={item} query={input} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} modelId={selectedModelId ?? undefined} />
                   ))}
                 </div>
               </div>
@@ -1499,7 +1465,7 @@ export default function HomePage() {
                 </div>
                 <div className="divide-y divide-border">
                   {regularResults.map((item) => (
-                    <SearchResultCard key={item.paper.id} item={item} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} />
+                    <ResultCard key={item.paper.id} item={item} query={input} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} modelId={selectedModelId ?? undefined} />
                   ))}
                 </div>
               </div>

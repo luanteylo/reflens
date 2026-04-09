@@ -1,6 +1,7 @@
 """Search and reference finder endpoints."""
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from reflens.api.deps import get_engine, get_user_id
 from reflens.api.routes.papers import _paper_to_summary
@@ -87,3 +88,28 @@ async def find_references(
         text=body.text,
         warning=data.get("warning"),
     )
+
+
+class ExplainRequest(BaseModel):
+    query: str
+    paper_id: str
+    model_id: str | None = None
+
+
+@router.post("/explain")
+async def explain_single(
+    body: ExplainRequest,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    try:
+        result = await engine.explain_single(
+            query=body.query,
+            paper_id=body.paper_id,
+            user_id=user_id,
+            model_id=body.model_id,
+        )
+        return result
+    except ValueError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Paper not found")
