@@ -7,7 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="REFLENS_", env_file=".env")
+    model_config = SettingsConfigDict(
+        env_prefix="REFLENS_", env_file=".env", extra="ignore"
+    )
 
     # AI providers
     anthropic_api_key: str = ""
@@ -42,6 +44,25 @@ class Settings(BaseSettings):
     # Server
     host: str = "127.0.0.1"
     port: int = 8000
+
+    # Auth
+    auth_enabled: bool = False
+    secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+
+    # Email
+    mail_username: str = ""
+    mail_password: str = ""
+    mail_from: str = ""
+    mail_server: str = ""
+    mail_port: int = 587
+    mail_starttls: bool = True
+    mail_ssl_tls: bool = False
+
+    # Frontend
+    frontend_url: str = "http://localhost:3000"
 
 
 def get_settings() -> Settings:

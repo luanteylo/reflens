@@ -37,7 +37,10 @@ export function getPdfUrl(paperId: string): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    credentials: "include",
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`API ${res.status}: ${body}`);
@@ -46,8 +49,47 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface AuthUser {
+  user_id: string;
+  email: string;
+  plan: string;
+  email_verified: boolean;
+}
+
 // Papers
 export const api = {
+  auth: {
+    signup(email: string, password: string) {
+      return request<{ message: string }>("/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    },
+    login(email: string, password: string) {
+      return request<AuthUser>("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+    },
+    logout() {
+      return request<{ message: string }>("/auth/logout", { method: "POST" });
+    },
+    refresh() {
+      return request<{ message: string }>("/auth/refresh", { method: "POST" });
+    },
+    me() {
+      return request<AuthUser>("/auth/me");
+    },
+    verifyEmail(token: string) {
+      return request<{ message: string }>("/auth/verify-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+    },
+  },
   papers: {
     list(limit = 50, offset = 0, tagIds?: string[]) {
       const params = new URLSearchParams();

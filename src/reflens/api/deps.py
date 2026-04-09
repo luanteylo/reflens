@@ -1,5 +1,7 @@
 """Dependency injection for the FastAPI API layer."""
 
+from fastapi import HTTPException, Request
+
 from reflens.config import Settings
 from reflens.core.engine import RefLensEngine
 
@@ -20,6 +22,28 @@ def set_engine(engine: RefLensEngine) -> None:
     _engine = engine
 
 
-def get_user_id() -> str:
-    """Return the current user ID. Hardcoded for local mode."""
-    return "local"
+def get_user_id(request: Request) -> str:
+    """Return the current user ID.
+
+    In local mode (auth_enabled=False): returns "local".
+    In auth mode: decodes JWT from HttpOnly cookie.
+    """
+    from reflens.config import get_settings
+
+    settings = get_settings()
+    if not settings.auth_enabled:
+        return "local"
+
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    from reflens.auth.security import decode_token
+
+    try:
+        payload = decode_token(token, settings)
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        return payload["sub"]
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
