@@ -16,6 +16,10 @@ import {
   Settings,
   DollarSign,
   Sliders,
+  Key,
+  Plus,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -142,6 +146,133 @@ function SecuritySection() {
           {loading ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Changing...</span> : "Change password"}
         </button>
       </form>
+    </Section>
+  );
+}
+
+function ApiKeysSection() {
+  const { data: keys, refetch } = useQuery({
+    queryKey: ["api-keys"],
+    queryFn: () => api.apiKeys.list(),
+  });
+  const [adding, setAdding] = useState(false);
+  const [provider, setProvider] = useState("claude");
+  const [keyValue, setKeyValue] = useState("");
+  const [label, setLabel] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!keyValue.trim()) return;
+    setSaving(true);
+    try {
+      await api.apiKeys.add(provider, keyValue.trim(), label || provider);
+      setKeyValue("");
+      setLabel("");
+      setAdding(false);
+      refetch();
+    } catch { /* ignore */ }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    await api.apiKeys.delete(id);
+    refetch();
+  };
+
+  return (
+    <Section title="API Keys" icon={Key}>
+      <p className="text-xs text-muted-foreground">
+        Add your own API keys for cloud AI models. Keys are encrypted and stored securely.
+      </p>
+
+      {keys && keys.length > 0 && (
+        <div className="space-y-2">
+          {keys.map((k) => (
+            <div key={k.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2 py-0.5 text-xs ${
+                  k.provider === "claude" ? "bg-orange-50 text-orange-700" : "bg-green-50 text-green-700"
+                }`}>
+                  {k.provider}
+                </span>
+                <span className="text-sm">{k.label}</span>
+                <span className="text-xs text-muted-foreground">{k.key_hint}</span>
+              </div>
+              <button
+                onClick={() => handleDelete(k.id)}
+                className="text-muted-foreground hover:text-destructive transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding ? (
+        <form onSubmit={handleAdd} className="space-y-3 border-t border-border pt-3">
+          <div className="flex gap-2">
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value)}
+              className="rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="claude">Anthropic (Claude)</option>
+              <option value="openai">OpenAI (GPT)</option>
+            </select>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Label (optional)"
+              className="flex-1 rounded-lg border border-border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div className="relative">
+            <input
+              type={showKey ? "text" : "password"}
+              value={keyValue}
+              onChange={(e) => setKeyValue(e.target.value)}
+              placeholder={provider === "claude" ? "sk-ant-..." : "sk-proj-..."}
+              required
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 pr-10 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={saving || !keyValue.trim()}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save key"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAdding(false); setKeyValue(""); }}
+              className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add API key
+        </button>
+      )}
     </Section>
   );
 }
@@ -451,6 +582,7 @@ export default function SettingsPage() {
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
         <ProfileSection />
         <SecuritySection />
+        <ApiKeysSection />
         <PreferencesSection />
         <AIModelsSection />
         <UsageSection />

@@ -71,11 +71,43 @@ class RefLensEngine:
         except Exception:
             pass  # Don't fail operations on usage logging errors
 
-    def get_ai(self, model_id: str | None = None) -> AIProvider:
-        """Get an AI provider for a specific model, or the default."""
-        if not model_id:
+    def get_ai(self, model_id: str | None = None, user_id: str | None = None) -> AIProvider:
+        """Get an AI provider for a specific model, using user's key if available."""
+        if not model_id and not user_id:
             return self.ai
-        return create_ai_provider(self.settings, model_id)
+
+        # Check if user has their own key for this provider
+        effective_settings = self.settings
+        if user_id and user_id != "local":
+            try:
+                from reflens.ai.factory import parse_model_spec
+                from reflens.auth.crypto import decrypt_key
+                from reflens.db.models import UserApiKey
+                from sqlalchemy import select
+
+                provider, _ = parse_model_spec(model_id or f"{self.settings.ai_provider}/{self.settings.ai_model}")
+                session = self._get_session()
+                try:
+                    key_row = session.execute(
+                        select(UserApiKey).where(
+                            UserApiKey.user_id == user_id,
+                            UserApiKey.provider == provider,
+                        )
+                    ).scalar_one_or_none()
+                    if key_row:
+                        from copy import copy
+                        effective_settings = copy(self.settings)
+                        decrypted = decrypt_key(key_row.encrypted_key, self.settings)
+                        if provider == "claude":
+                            effective_settings.anthropic_api_key = decrypted
+                        elif provider == "openai":
+                            effective_settings.openai_api_key = decrypted
+                finally:
+                    session.close()
+            except Exception:
+                pass  # Fall back to server keys
+
+        return create_ai_provider(effective_settings, model_id)
 
     @property
     def embedding_store(self) -> EmbeddingStore:
@@ -180,7 +212,7 @@ class RefLensEngine:
             if paper is None:
                 raise ValueError(f"Paper not found: {paper_id}")
 
-            ai = self.get_ai(model_id)
+            ai = self.get_ai(model_id, user_id)
             resolved_id = model_id or f"{self.settings.ai_provider}/{self.settings.ai_model}"
             _, model_name = parse_model_spec(resolved_id)
 
@@ -277,7 +309,7 @@ class RefLensEngine:
             if paper is None:
                 raise ValueError(f"Paper not found: {paper_id}")
 
-            ai = self.get_ai(model_id)
+            ai = self.get_ai(model_id, user_id)
             generated = await ai.generate_tags(
                 title=paper.title,
                 abstract=paper.abstract or "",
@@ -661,7 +693,7 @@ class RefLensEngine:
                         }
                         for p in papers
                     ]
-                    ai = self.get_ai(model_id)
+                    ai = self.get_ai(model_id, user_id)
                     assessments = await ai.explain_relevance_batch(
                         text, paper_inputs
                     )

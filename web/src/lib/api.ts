@@ -130,6 +130,21 @@ export const api = {
       });
     },
   },
+  apiKeys: {
+    list() {
+      return request<{ id: string; provider: string; label: string; key_hint: string; created_at: string }[]>("/api-keys");
+    },
+    add(provider: string, apiKey: string, label?: string) {
+      return request<{ id: string; provider: string; label: string }>("/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, api_key: apiKey, label: label ?? provider }),
+      });
+    },
+    delete(id: string) {
+      return request<void>(`/api-keys/${id}`, { method: "DELETE" });
+    },
+  },
   stats() {
     return request<{ papers: number; collections: number; storage_bytes: number; storage_mb: number }>("/health/stats");
   },

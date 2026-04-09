@@ -74,6 +74,86 @@ def create_app() -> FastAPI:
             "models": list_available_models(settings),
         }
 
+    @v1.get("/api-keys", tags=["system"])
+    def list_api_keys(request: Request):
+        from reflens.api.deps import get_user_id
+        from reflens.db.session import get_session
+        from sqlalchemy import select
+        from reflens.db.models import UserApiKey
+
+        user_id = get_user_id(request)
+        session = get_session()
+        try:
+            keys = list(session.execute(
+                select(UserApiKey).where(UserApiKey.user_id == user_id)
+            ).scalars().all())
+            return [
+                {
+                    "id": k.id,
+                    "provider": k.provider,
+                    "label": k.label,
+                    "key_hint": "..." + k.encrypted_key[-8:] if k.encrypted_key else "",
+                    "created_at": k.created_at.isoformat(),
+                }
+                for k in keys
+            ]
+        finally:
+            session.close()
+
+    @v1.post("/api-keys", tags=["system"], status_code=201)
+    def add_api_key(request: Request, body: dict):
+        from reflens.api.deps import get_user_id
+        from reflens.db.session import get_session
+        from reflens.db.models import UserApiKey
+        from reflens.auth.crypto import encrypt_key
+        from reflens.config import get_settings
+
+        user_id = get_user_id(request)
+        settings = get_settings()
+        session = get_session()
+        try:
+            provider = body.get("provider", "")
+            api_key = body.get("api_key", "")
+            label = body.get("label", provider)
+            if not provider or not api_key:
+                from fastapi import HTTPException
+                raise HTTPException(400, "provider and api_key are required")
+
+            key = UserApiKey(
+                user_id=user_id,
+                provider=provider,
+                encrypted_key=encrypt_key(api_key, settings),
+                label=label,
+            )
+            session.add(key)
+            session.commit()
+            return {"id": key.id, "provider": key.provider, "label": key.label}
+        finally:
+            session.close()
+
+    @v1.delete("/api-keys/{key_id}", tags=["system"], status_code=204)
+    def delete_api_key(key_id: str, request: Request):
+        from reflens.api.deps import get_user_id
+        from reflens.db.session import get_session
+        from sqlalchemy import select
+        from reflens.db.models import UserApiKey
+        from fastapi import HTTPException
+
+        user_id = get_user_id(request)
+        session = get_session()
+        try:
+            key = session.execute(
+                select(UserApiKey).where(
+                    UserApiKey.id == key_id, UserApiKey.user_id == user_id
+                )
+            ).scalar_one_or_none()
+            if key is None:
+                raise HTTPException(404, "Key not found")
+            session.delete(key)
+            session.commit()
+        finally:
+            session.close()
+
     @v1.get("/preferences", tags=["system"])
     def get_preferences(request: Request):
         from reflens.api.deps import get_user_id
