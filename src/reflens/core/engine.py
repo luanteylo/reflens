@@ -676,15 +676,14 @@ class RefLensEngine:
     ) -> dict:
         """Find papers that could serve as references for the given text.
 
-        Uses hybrid search (semantic + keyword) with abstract boosting.
+        Uses hybrid search + AI re-ranking for best results.
         """
-        from reflens.search.embedder import CHUNK_BOOST
-
-        # Use the hybrid search approach
+        # 1. Get more candidates than needed for AI re-ranking
+        candidate_limit = limit * 3 if explain else limit
         results = self.search_papers(
             query=text,
             user_id=user_id,
-            limit=limit,
+            limit=candidate_limit,
             collection_ids=collection_ids,
         )
 
@@ -698,27 +697,52 @@ class RefLensEngine:
             finally:
                 session.close()
 
-        # AI explain if requested
         ai_warning = None
         assessments = [None] * len(results)
+
         if explain and results:
+            ai = self.get_ai(model_id, user_id)
+
+            # 2. AI re-ranking: send candidates, get AI-informed ordering
             try:
                 paper_inputs = [
                     {
                         "title": r["paper"].title,
                         "abstract": r["paper"].abstract or "",
-                        "text": r["paper"].full_text or "",
                     }
                     for r in results
                 ]
-                ai = self.get_ai(model_id, user_id)
-                assessments = await ai.explain_relevance_batch(
-                    text, paper_inputs
-                )
+                ranking = await ai.rerank(text, paper_inputs)
                 self._log_usage(ai, user_id)
+
+                # Reorder results based on AI ranking
+                if ranking:
+                    reordered = []
+                    reasons = {}
+                    for item in ranking:
+                        idx = item.get("index", -1)
+                        if 0 <= idx < len(results):
+                            reordered.append(results[idx])
+                            reasons[idx] = item.get("reason", "")
+                    # Add any papers the AI didn't include at the end
+                    included = {item["index"] for item in ranking if 0 <= item.get("index", -1) < len(results)}
+                    for i, r in enumerate(results):
+                        if i not in included:
+                            reordered.append(r)
+                    results = reordered
+                    # Store reasons as explanations
+                    assessments = [
+                        {"stance": "relevant", "explanation": reasons.get(ranking[i]["index"], "")}
+                        if i < len(ranking) else None
+                        for i in range(len(results))
+                    ]
             except Exception as exc:
-                logger.warning("Failed to explain relevance", exc_info=True)
+                logger.warning("AI re-ranking failed", exc_info=True)
                 ai_warning = str(exc)
+
+        # Trim to requested limit
+        results = results[:limit]
+        assessments = assessments[:limit]
 
         return {
             "results": [

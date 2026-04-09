@@ -10,6 +10,8 @@ from reflens.ai.claude import (
     CLAIM_CHECK_PROMPT,
     RELEVANCE_PROMPT,
     RELEVANCE_PROMPT_COMPACT,
+    RERANK_PROMPT,
+    RERANK_PROMPT_COMPACT,
     SUMMARIZE_PROMPT,
     SUMMARIZE_PROMPT_COMPACT,
     TAGS_PROMPT,
@@ -178,6 +180,34 @@ class OpenAIProvider(AIProvider):
             CLAIM_CHECK_PROMPT.format(claim=claim, evidence=evidence),
             self.profile.max_output_tokens,
         )
+
+    async def rerank(self, query: str, papers: list[dict]) -> list[dict]:
+        """Re-rank papers by relevance using AI."""
+        if not papers:
+            return []
+
+        papers_block = "\n\n".join(
+            f"Paper {i}: {p['title']}\nAbstract: {(p.get('abstract') or '')[:500]}"
+            for i, p in enumerate(papers)
+        )
+
+        if self.profile.use_compact_prompts:
+            prompt = RERANK_PROMPT_COMPACT.format(query=query, papers_block=papers_block)
+        else:
+            prompt = RERANK_PROMPT.format(query=query, papers_block=papers_block)
+
+        raw = self._chat(prompt, min(100 * len(papers), 2000), "rerank")
+        try:
+            data = json.loads(_extract_json(raw))
+            if isinstance(data, list):
+                return [
+                    {"index": item.get("index", 0), "reason": item.get("reason", "")}
+                    for item in data
+                    if isinstance(item, dict) and "index" in item
+                ]
+        except (json.JSONDecodeError, KeyError):
+            pass
+        return await super().rerank(query, papers)
 
     async def explain_relevance_batch(
         self, query: str, papers: list[dict]

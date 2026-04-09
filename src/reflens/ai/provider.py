@@ -101,6 +101,13 @@ class AIProvider(ABC):
     ) -> str:
         """Check whether a claim is supported by the given paper excerpts."""
 
+    async def rerank(
+        self, query: str, papers: list[dict]
+    ) -> list[dict]:
+        """Re-rank papers by relevance using AI. Returns [{index, reason}] ordered by relevance.
+        Default: return original order."""
+        return [{"index": i, "reason": ""} for i in range(len(papers))]
+
     async def explain_relevance_batch(
         self, query: str, papers: list[dict]
     ) -> list[dict]:

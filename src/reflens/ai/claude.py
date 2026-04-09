@@ -127,6 +127,32 @@ Respond with ONLY valid JSON, no other text:
 
 The stance must be exactly one of: "supports", "contradicts", or "neutral"."""
 
+RERANK_PROMPT = """\
+You are a scientific literature expert. A researcher is looking for papers relevant to their query.
+
+Query: "{query}"
+
+Here are candidate papers found by keyword search. Rank them by relevance to the query.
+For each paper, assess how well it addresses the query topic.
+
+{papers_block}
+
+Respond with ONLY a JSON array of paper indices ordered from most to least relevant.
+Include a brief reason for each. Example:
+[{{"index": 2, "reason": "Directly addresses the query topic"}}, {{"index": 0, "reason": "Related but tangential"}}]
+
+Only include papers that are at least somewhat relevant. Exclude completely irrelevant papers."""
+
+RERANK_PROMPT_COMPACT = """\
+Rank these papers by relevance to the query. Return JSON array of indices, most relevant first.
+
+Query: "{query}"
+
+{papers_block}
+
+JSON array only: [{{"index": 0, "reason": "why relevant"}}]
+Exclude irrelevant papers."""
+
 BATCH_RELEVANCE_PROMPT = """\
 You are a research assistant. For each paper below, determine if it is relevant to the claim.
 
@@ -324,6 +350,42 @@ class ClaudeProvider(AIProvider):
             except (json.JSONDecodeError, KeyError):
                 pass
         return {"stance": "neutral", "explanation": raw.strip()}
+
+    async def rerank(self, query: str, papers: list[dict]) -> list[dict]:
+        """Re-rank papers by relevance using AI."""
+        if not papers:
+            return []
+
+        papers_block = "\n\n".join(
+            f"Paper {i}: {p['title']}\nAbstract: {(p.get('abstract') or '')[:800]}"
+            for i, p in enumerate(papers)
+        )
+
+        if self.profile.use_compact_prompts:
+            prompt = RERANK_PROMPT_COMPACT.format(query=query, papers_block=papers_block)
+            max_tokens = min(100 * len(papers), 1500)
+        else:
+            prompt = RERANK_PROMPT.format(query=query, papers_block=papers_block)
+            max_tokens = min(150 * len(papers), 3000)
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        self._track_usage(response, "rerank")
+        raw = response.content[0].text
+        try:
+            data = json.loads(_extract_json(raw))
+            if isinstance(data, list):
+                return [
+                    {"index": item.get("index", 0), "reason": item.get("reason", "")}
+                    for item in data
+                    if isinstance(item, dict) and "index" in item
+                ]
+        except (json.JSONDecodeError, KeyError):
+            pass
+        return await super().rerank(query, papers)
 
     async def check_claim(
         self, claim: str, supporting_texts: list[dict[str, str]]

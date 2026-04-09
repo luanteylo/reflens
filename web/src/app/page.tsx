@@ -321,6 +321,11 @@ function ResultCard({ item, query, onOpenPdf, selected, onToggleSelect, modelId 
           )}
           {pct != null && <span className="text-primary font-medium">{pct}% match</span>}
           {analysis && <StanceBadge stance={analysis.stance} />}
+          {paper.ai_summary && (
+            <span className="rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-xs text-green-700">
+              summarized
+            </span>
+          )}
         </div>
 
         {/* Title */}
