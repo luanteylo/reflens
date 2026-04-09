@@ -3,7 +3,7 @@
 AI-powered scientific paper database with semantic search and citation management.
 
 Upload PDFs, extract structured data, build citation networks, and search by meaning.
-The killer feature: *"Give me a sentence, and I'll find papers in your library that support it as references."*
+The killer feature: *"Give me a sentence, and I'll find papers in your library that support (or contradits) it as references."*
 
 ## Quick Start
 
@@ -108,6 +108,4 @@ docker compose up
 
 Python 3.11+ / FastAPI / SQLAlchemy / ChromaDB / PyMuPDF / GROBID / Anthropic SDK / OpenAI SDK
 
-## License
 
-Proprietary
