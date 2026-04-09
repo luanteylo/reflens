@@ -742,6 +742,33 @@ class RefLensEngine:
 
         # Trim to requested limit
         results = results[:limit]
+
+        # 3. Per-result stance analysis on the final set
+        if explain and results and not ai_warning:
+            try:
+                paper_inputs = [
+                    {
+                        "title": r["paper"].title,
+                        "abstract": r["paper"].abstract or "",
+                        "text": r["paper"].full_text or "",
+                    }
+                    for r in results
+                ]
+                ai = self.get_ai(model_id, user_id)
+                stance_results = await ai.explain_relevance_batch(text, paper_inputs)
+                self._log_usage(ai, user_id)
+                # Merge: keep rerank reason + add stance
+                for i, stance in enumerate(stance_results):
+                    if stance and i < len(assessments):
+                        prev_reason = assessments[i]["explanation"] if assessments[i] else ""
+                        assessments[i] = {
+                            "stance": stance.get("stance", "neutral"),
+                            "explanation": stance.get("explanation", prev_reason),
+                        }
+            except Exception as exc:
+                logger.warning("Stance analysis failed", exc_info=True)
+                if not ai_warning:
+                    ai_warning = str(exc)
         assessments = assessments[:limit]
 
         return {
