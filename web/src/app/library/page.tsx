@@ -1447,10 +1447,15 @@ export default function LibraryPage() {
             </div>
 
             {/* Task progress */}
-            {summarizeAll.isPending && (
-              <div className="rounded-lg border border-border bg-white p-3 flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                Starting summarization...
+            {(summarizeAll.isPending || summarizeAll.isStarting) && (
+              <div className="rounded-lg border border-border bg-white p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span className="font-medium">Summarizing... starting</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div className="h-full bg-primary rounded-full animate-progress" />
+                </div>
               </div>
             )}
             {(summarizeAll.taskId && summarizeAll.status) && (
@@ -1460,10 +1465,15 @@ export default function LibraryPage() {
                 onDismiss={summarizeAll.dismiss}
               />
             )}
-            {tagAll.isPending && (
-              <div className="rounded-lg border border-border bg-white p-3 flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                Starting tagging...
+            {(tagAll.isPending || tagAll.isStarting) && (
+              <div className="rounded-lg border border-border bg-white p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span className="font-medium">Tagging... starting</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div className="h-full bg-primary rounded-full animate-progress" />
+                </div>
               </div>
             )}
             {(tagAll.taskId && tagAll.status) && (

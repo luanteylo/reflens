@@ -37,11 +37,35 @@ export function getPdfUrl(paperId: string): string {
   return `${BASE}/papers/${paperId}/pdf`;
 }
 
+let _refreshing: Promise<void> | null = null;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  let res = await fetch(`${BASE}${path}`, {
     ...init,
     credentials: "include",
   });
+
+  // Auto-refresh on 401 (expired access token)
+  if (res.status === 401 && !path.includes("/auth/")) {
+    if (!_refreshing) {
+      _refreshing = fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      }).then((r) => {
+        if (!r.ok) {
+          // Refresh failed — redirect to login
+          if (typeof window !== "undefined") window.location.href = "/login";
+        }
+      }).finally(() => { _refreshing = null; });
+    }
+    await _refreshing;
+    // Retry the original request
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      credentials: "include",
+    });
+  }
+
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`API ${res.status}: ${body}`);
