@@ -986,6 +986,71 @@ function FolderTree({
   );
 }
 
+function SummarizeControls({
+  models,
+  selectedModelId,
+  onSelectModel,
+  onSummarize,
+  disabled,
+}: {
+  models: { id: string; model: string; local: boolean; provider: string }[];
+  selectedModelId: string | null;
+  onSelectModel: (id: string) => void;
+  onSummarize: (modelId: string | undefined, prompt: string) => void;
+  disabled: boolean;
+}) {
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [prompt, setPrompt] = useState("");
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      <button
+        onClick={() => onSummarize(selectedModelId ?? undefined, prompt)}
+        disabled={disabled}
+        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+      >
+        <Sparkles className="h-3 w-3" />
+        Summarize
+      </button>
+      <button
+        type="button"
+        onClick={() => setShowPrompt(!showPrompt)}
+        className={`rounded-full border px-2 py-1 text-xs transition-colors ${
+          showPrompt || prompt
+            ? "border-purple-200 bg-purple-50 text-purple-700"
+            : "border-border text-muted-foreground hover:text-foreground"
+        }`}
+        title="Add custom instructions for the summary"
+      >
+        +prompt
+      </button>
+      {models.length > 1 && (
+        <select
+          value={selectedModelId ?? ""}
+          onChange={(e) => onSelectModel(e.target.value)}
+          className="rounded-full border border-border bg-white px-2 py-1 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        >
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.model} ({m.local ? "local" : m.provider})
+            </option>
+          ))}
+        </select>
+      )}
+      {showPrompt && (
+        <input
+          type="text"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="e.g. Focus on methodology and statistical methods..."
+          className="w-full mt-1 rounded-lg border border-border bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          autoFocus
+        />
+      )}
+    </div>
+  );
+}
+
 export default function LibraryPage() {
   const [offset, setOffset] = useState(0);
   const [searchInput, setSearchInput] = useState("");
@@ -1221,29 +1286,15 @@ export default function LibraryPage() {
                 <CollectionActions selectedIds={selectedIds} collections={collections} />
 
                 {selectedIds.size > 0 && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => summarizeAll.trigger(selectedModelId ?? undefined)}
-                      disabled={summarizeAll.isPending || summarizeAll.isActive}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      Summarize
-                    </button>
-                    {availableModels.length > 1 && (
-                      <select
-                        value={selectedModelId ?? ""}
-                        onChange={(e) => setSelectedModelId(e.target.value)}
-                        className="rounded-full border border-border bg-white px-2 py-1 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        {availableModels.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.model} ({m.local ? "local" : m.provider})
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
+                  <SummarizeControls
+                    models={availableModels}
+                    selectedModelId={selectedModelId}
+                    onSelectModel={setSelectedModelId}
+                    onSummarize={(modelId, prompt) =>
+                      summarizeAll.trigger(modelId, Array.from(selectedIds), prompt || undefined)
+                    }
+                    disabled={summarizeAll.isPending || summarizeAll.isActive}
+                  />
                 )}
               </div>
             </div>

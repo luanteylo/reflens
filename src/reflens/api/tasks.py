@@ -76,6 +76,8 @@ async def run_bulk_task(
     kind: str,
     user_id: str,
     model_id: str | None = None,
+    paper_ids: list[str] | None = None,
+    user_prompt: str | None = None,
 ):
     task = registry.get(task_id)
     if task is None:
@@ -83,8 +85,11 @@ async def run_bulk_task(
 
     try:
         papers = engine.list_papers(user_id=user_id, limit=10000)
+        if paper_ids:
+            id_set = set(paper_ids)
+            papers = [p for p in papers if p.id in id_set]
         if kind == "summarize-all":
-            pending = [p for p in papers if not p.ai_summary]
+            pending = papers  # Always re-summarize selected papers
         else:
             pending = [p for p in papers if not p.tags]
 
@@ -95,7 +100,7 @@ async def run_bulk_task(
         for paper in pending:
             try:
                 if kind == "summarize-all":
-                    await engine.summarize_paper(paper.id, user_id, model_id=model_id)
+                    await engine.summarize_paper(paper.id, user_id, model_id=model_id, user_prompt=user_prompt)
                 else:
                     await engine.tag_paper(paper.id, user_id, model_id=model_id)
                 task.completed += 1

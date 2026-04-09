@@ -30,10 +30,10 @@ export function useBulkAction(kind: "summarize-all" | "tag-all") {
   const taskStatus = useTaskPolling(taskId);
 
   const mutation = useMutation({
-    mutationFn: (modelId?: string) =>
+    mutationFn: ({ modelId, paperIds, userPrompt }: { modelId?: string; paperIds?: string[]; userPrompt?: string } = {}) =>
       kind === "summarize-all"
-        ? api.papers.summarizeAll(modelId)
-        : api.papers.tagAll(modelId),
+        ? api.papers.summarizeAll(modelId, paperIds, userPrompt)
+        : api.papers.tagAll(modelId, paperIds),
     onSuccess: (data) => {
       setTask(kind, data.task_id);
     },
@@ -49,7 +49,7 @@ export function useBulkAction(kind: "summarize-all" | "tag-all") {
   const isStarting = !!taskId && !taskStatus.data && taskStatus.isLoading;
 
   return {
-    trigger: (modelId?: string) => mutation.mutate(modelId),
+    trigger: (modelId?: string, paperIds?: string[], userPrompt?: string) => mutation.mutate({ modelId, paperIds, userPrompt }),
     isPending: mutation.isPending,
     taskId,
     status: taskStatus.data,

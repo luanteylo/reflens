@@ -193,13 +193,19 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
-    summarizeAll(modelId?: string) {
-      const params = modelId ? `?model_id=${encodeURIComponent(modelId)}` : "";
-      return request<TaskCreatedResponse>(`/papers/summarize-all${params}`, { method: "POST" });
+    summarizeAll(modelId?: string, paperIds?: string[], userPrompt?: string) {
+      return request<TaskCreatedResponse>("/papers/summarize-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId ?? null, paper_ids: paperIds ?? null, user_prompt: userPrompt ?? null }),
+      });
     },
-    tagAll(modelId?: string) {
-      const params = modelId ? `?model_id=${encodeURIComponent(modelId)}` : "";
-      return request<TaskCreatedResponse>(`/papers/tag-all${params}`, { method: "POST" });
+    tagAll(modelId?: string, paperIds?: string[]) {
+      return request<TaskCreatedResponse>("/papers/tag-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId ?? null, paper_ids: paperIds ?? null }),
+      });
     },
   },
   tasks: {

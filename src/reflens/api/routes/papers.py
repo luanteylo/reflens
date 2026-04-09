@@ -140,9 +140,15 @@ async def upload_paper(
     return PaperUploadResponse(**result)
 
 
+class BulkRequest(BaseModel):
+    model_id: str | None = None
+    paper_ids: list[str] | None = None
+    user_prompt: str | None = None
+
+
 @router.post("/summarize-all", response_model=TaskCreatedResponse)
 async def summarize_all(
-    model_id: str | None = None,
+    body: BulkRequest | None = None,
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
@@ -150,14 +156,19 @@ async def summarize_all(
     task = registry.create("summarize-all")
     if task.status.value == "pending":
         asyncio.create_task(
-            run_bulk_task(task.id, registry, engine, "summarize-all", user_id, model_id)
+            run_bulk_task(
+                task.id, registry, engine, "summarize-all", user_id,
+                body.model_id if body else None,
+                body.paper_ids if body else None,
+                body.user_prompt if body else None,
+            )
         )
     return TaskCreatedResponse(task_id=task.id)
 
 
 @router.post("/tag-all", response_model=TaskCreatedResponse)
 async def tag_all(
-    model_id: str | None = None,
+    body: BulkRequest | None = None,
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
@@ -165,7 +176,11 @@ async def tag_all(
     task = registry.create("tag-all")
     if task.status.value == "pending":
         asyncio.create_task(
-            run_bulk_task(task.id, registry, engine, "tag-all", user_id, model_id)
+            run_bulk_task(
+                task.id, registry, engine, "tag-all", user_id,
+                body.model_id if body else None,
+                body.paper_ids if body else None,
+            )
         )
     return TaskCreatedResponse(task_id=task.id)
 
