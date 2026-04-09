@@ -972,6 +972,7 @@ export default function HomePage() {
   const [aiSearching, setAiSearching] = useState(false);
   const [aiSearchResults, setAiSearchResults] = useState<ReferenceResult[] | null>(null);
   const [aiSearchError, setAiSearchError] = useState(false);
+  const [aiWarning, setAiWarning] = useState<string | null>(null);
   const qc = useQueryClient();
 
   // Load history on mount
@@ -1066,6 +1067,7 @@ export default function HomePage() {
       setAiSearching(true);
       setAiSearchResults(null);
       setAiSearchError(false);
+      setAiWarning(null);
       api.findReferences({
         text: input.trim(),
         limit: 10,
@@ -1076,6 +1078,7 @@ export default function HomePage() {
         .then((data) => {
           if (!controller.signal.aborted) {
             setAiSearchResults(data.results);
+            setAiWarning(data.warning);
             setAiSearching(false);
           }
         })
@@ -1141,7 +1144,7 @@ export default function HomePage() {
         collection_ids: search.collection_id ? [search.collection_id] : undefined,
         model_id: selectedModelId ?? undefined,
       }, controller.signal)
-        .then((data) => { if (!controller.signal.aborted) { setAiSearchResults(data.results); setAiSearching(false); } })
+        .then((data) => { if (!controller.signal.aborted) { setAiSearchResults(data.results); setAiWarning(data.warning); setAiSearching(false); } })
         .catch(() => { if (!controller.signal.aborted) { setAiSearching(false); } });
     }
   };
@@ -1362,6 +1365,19 @@ export default function HomePage() {
                 >
                   Cancel
                 </button>
+              </div>
+            )}
+
+            {aiWarning && !isAiSearchPending && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 mb-3 flex items-start gap-2">
+                <span className="text-amber-500 text-lg leading-none">&#9888;</span>
+                <span>
+                  {aiWarning.includes("quota") || aiWarning.includes("429") || aiWarning.includes("insufficient")
+                    ? "API quota exceeded. Results shown without AI explanations. Check your billing."
+                    : aiWarning.includes("overloaded") || aiWarning.includes("529") || aiWarning.includes("Overloaded")
+                      ? "AI service temporarily overloaded. Results shown without explanations. Try again in a moment."
+                      : `AI analysis failed: ${aiWarning.slice(0, 100)}. Results shown by relevance only.`}
+                </span>
               </div>
             )}
 

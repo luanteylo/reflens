@@ -168,6 +168,7 @@ class ReferenceResult(BaseModel):
 class ReferencesResponse(BaseModel):
     results: list[ReferenceResult]
     text: str
+    warning: str | None = None
 
 
 # -- Authors --

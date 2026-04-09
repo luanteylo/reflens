@@ -158,6 +158,7 @@ export interface ReferenceResult {
 export interface ReferencesResponse {
   results: ReferenceResult[];
   text: string;
+  warning: string | null;
 }
 
 export interface AuthorListResponse {

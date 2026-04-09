@@ -545,6 +545,7 @@ class RefLensEngine:
                     break
 
             # Batch explain if requested
+            ai_warning = None
             assessments = [None] * len(papers)
             if explain and papers:
                 try:
@@ -560,18 +561,22 @@ class RefLensEngine:
                     assessments = await ai.explain_relevance_batch(
                         text, paper_inputs
                     )
-                except Exception:
+                except Exception as exc:
                     logger.warning("Failed to explain relevance", exc_info=True)
+                    ai_warning = str(exc)
 
-            return [
-                {
-                    "paper": paper,
-                    "score": scored[paper.id],
-                    "explanation": a["explanation"] if a else None,
-                    "stance": a["stance"] if a else None,
-                }
-                for paper, a in zip(papers, assessments)
-            ]
+            return {
+                "results": [
+                    {
+                        "paper": paper,
+                        "score": scored[paper.id],
+                        "explanation": a["explanation"] if a else None,
+                        "stance": a["stance"] if a else None,
+                    }
+                    for paper, a in zip(papers, assessments)
+                ],
+                "warning": ai_warning,
+            }
         finally:
             session.close()
 

@@ -65,7 +65,7 @@ async def find_references(
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
-    results = await engine.find_references(
+    data = await engine.find_references(
         text=body.text,
         user_id=user_id,
         limit=body.limit,
@@ -82,7 +82,8 @@ async def find_references(
                 explanation=r.get("explanation"),
                 stance=r.get("stance"),
             )
-            for r in results
+            for r in data["results"]
         ],
         text=body.text,
+        warning=data.get("warning"),
     )
