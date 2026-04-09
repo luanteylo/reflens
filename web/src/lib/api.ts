@@ -158,12 +158,27 @@ export const api = {
       by_model: { provider: string; model: string; prompt_tokens: number; completion_tokens: number; cost_usd: number; requests: number }[];
     }>("/health/usage");
   },
+  searchHistory: {
+    list() {
+      return request<{ id: string; query: string; created_at: string }[]>("/search-history");
+    },
+    add(query: string) {
+      return request<{ id: string }>("/search-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+    },
+    delete(id: string) {
+      return request<void>(`/search-history/${id}`, { method: "DELETE" });
+    },
+  },
   preferences: {
     get() {
-      return request<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number }>("/preferences");
+      return request<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number; ai_enabled: boolean }>("/preferences");
     },
-    update(prefs: Partial<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number }>) {
-      return request<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number }>("/preferences", {
+    update(prefs: Partial<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number; ai_enabled: boolean }>) {
+      return request<{ default_model: string | null; search_limit: number; explain_by_default: boolean; context_length: number; ai_enabled: boolean }>("/preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(prefs),

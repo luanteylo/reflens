@@ -115,10 +115,20 @@ class UserPreferences(Base):
     search_limit: Mapped[int] = mapped_column(Integer, default=10)
     explain_by_default: Mapped[bool] = mapped_column(Boolean, default=True)
     context_length: Mapped[int] = mapped_column(Integer, default=6000)
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )
+
+
+class SearchHistory(Base):
+    __tablename__ = "search_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
+    query: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class ReadingStatus(PyEnum):

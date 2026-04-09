@@ -1096,26 +1096,7 @@ function PdfViewer({
   );
 }
 
-const HISTORY_KEY = "reflens-search-history";
-const MAX_HISTORY = 20;
-
-function getHistory(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
-  } catch { return []; }
-}
-
-function addToHistory(query: string) {
-  const history = getHistory().filter((q) => q !== query);
-  history.unshift(query);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
-}
-
-function removeFromHistory(query: string) {
-  const history = getHistory().filter((q) => q !== query);
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-}
+// Search history is now stored in the database via API
 
 export default function HomePage() {
   const [input, setInput] = useState("");
@@ -1124,27 +1105,34 @@ export default function HomePage() {
   const [pdfViewer, setPdfViewer] = useState<{ id: string; title: string } | null>(null);
   const [aiEnabled, _setAiEnabled] = useState(false);
   const aiRef = useRef(false);
-  const setAiEnabled = (v: boolean) => { aiRef.current = v; _setAiEnabled(v); };
+  const setAiEnabled = (v: boolean) => {
+    aiRef.current = v;
+    _setAiEnabled(v);
+    api.preferences.update({ ai_enabled: v }).catch(() => {});
+  };
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [cachedResults, setCachedResults] = useState<ReferenceResult[] | null>(null);
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [bulkBibtexCopied, setBulkBibtexCopied] = useState(false);
   const [searchTime, setSearchTime] = useState<number | null>(null);
   const searchStartRef = useRef<number>(0);
   const historyRef = useRef<HTMLDivElement>(null);
+  // Search history from DB
+  const { data: historyData, refetch: refetchHistory } = useQuery({
+    queryKey: ["search-history"],
+    queryFn: () => api.searchHistory.list(),
+  });
+  const history = historyData?.map((h) => ({ id: h.id, query: h.query })) ?? [];
+
   const abortRef = useRef<AbortController | null>(null);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiSearchResults, setAiSearchResults] = useState<ReferenceResult[] | null>(null);
   const [aiSearchError, setAiSearchError] = useState(false);
   const [aiWarning, setAiWarning] = useState<string | null>(null);
   const qc = useQueryClient();
-
-  // Load history on mount
-  useEffect(() => { setHistory(getHistory()); }, []);
 
   // Close history dropdown on outside click
   useEffect(() => {
@@ -1191,16 +1179,19 @@ export default function HomePage() {
     queryFn: () => api.preferences.get(),
   });
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  // Set default model: user preference > server default
+  // Load preferences: model and AI toggle
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
   useEffect(() => {
-    if (!selectedModelId) {
-      if (userPrefs?.default_model) {
-        setSelectedModelId(userPrefs.default_model);
-      } else if (aiInfo?.default) {
-        setSelectedModelId(aiInfo.default);
-      }
+    if (userPrefs && !prefsLoaded) {
+      if (userPrefs.default_model) setSelectedModelId(userPrefs.default_model);
+      else if (aiInfo?.default) setSelectedModelId(aiInfo.default);
+      _setAiEnabled(userPrefs.ai_enabled);
+      aiRef.current = userPrefs.ai_enabled;
+      setPrefsLoaded(true);
+    } else if (aiInfo?.default && !selectedModelId && !userPrefs) {
+      setSelectedModelId(aiInfo.default);
     }
-  }, [aiInfo, userPrefs, selectedModelId]);
+  }, [aiInfo, userPrefs, selectedModelId, prefsLoaded]);
 
   const saveMutation = useMutation({
     mutationFn: ({ text, collectionIds, results }: { text: string; collectionIds?: string[]; results?: ReferenceResult[] }) =>
@@ -1227,8 +1218,7 @@ export default function HomePage() {
     e.preventDefault();
     if (!input.trim()) return;
     const useAi = aiRef.current;
-    addToHistory(input.trim());
-    setHistory(getHistory());
+    api.searchHistory.add(input.trim()).then(() => refetchHistory()).catch(() => {});
     setShowHistory(false);
     setHasSearched(true);
     setSaved(false);
@@ -1375,24 +1365,23 @@ export default function HomePage() {
                   Recent searches
                 </div>
                 {history
-                  .filter((q) => !input || q.toLowerCase().includes(input.toLowerCase()))
-                  .map((q) => (
-                  <div key={q} className="group flex items-center hover:bg-muted transition-colors">
+                  .filter((h) => !input || h.query.toLowerCase().includes(input.toLowerCase()))
+                  .map((h) => (
+                  <div key={h.id} className="group flex items-center hover:bg-muted transition-colors">
                     <button
                       type="button"
                       onClick={() => {
-                        setInput(q);
+                        setInput(h.query);
                         setShowHistory(false);
                       }}
                       className="flex-1 px-3 py-2 text-sm text-left text-muted-foreground hover:text-foreground truncate"
                     >
-                      {q}
+                      {h.query}
                     </button>
                     <button
                       type="button"
                       onClick={() => {
-                        removeFromHistory(q);
-                        setHistory(getHistory());
+                        api.searchHistory.delete(h.id).then(() => refetchHistory());
                       }}
                       className="opacity-0 group-hover:opacity-100 px-2 text-muted-foreground hover:text-destructive transition-all"
                     >
@@ -1479,19 +1468,19 @@ export default function HomePage() {
               {showHistory && history.length > 0 && (
                 <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-white shadow-lg">
                   {history
-                    .filter((q) => !input || q.toLowerCase().includes(input.toLowerCase()))
-                    .map((q) => (
-                    <div key={q} className="group flex items-center hover:bg-muted transition-colors">
+                    .filter((h) => !input || h.query.toLowerCase().includes(input.toLowerCase()))
+                    .map((h) => (
+                    <div key={h.id} className="group flex items-center hover:bg-muted transition-colors">
                       <button
                         type="button"
-                        onClick={() => { setInput(q); setShowHistory(false); }}
+                        onClick={() => { setInput(h.query); setShowHistory(false); }}
                         className="flex-1 px-3 py-2 text-sm text-left text-muted-foreground hover:text-foreground truncate"
                       >
-                        {q}
+                        {h.query}
                       </button>
                       <button
                         type="button"
-                        onClick={() => { removeFromHistory(q); setHistory(getHistory()); }}
+                        onClick={() => { api.searchHistory.delete(h.id).then(() => refetchHistory()); }}
                         className="opacity-0 group-hover:opacity-100 px-2 text-muted-foreground hover:text-destructive transition-all"
                       >
                         <X className="h-3 w-3" />

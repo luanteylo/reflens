@@ -173,12 +173,14 @@ def create_app() -> FastAPI:
                     "search_limit": prefs.search_limit,
                     "explain_by_default": prefs.explain_by_default,
                     "context_length": prefs.context_length,
+                    "ai_enabled": prefs.ai_enabled,
                 }
             return {
                 "default_model": None,
                 "search_limit": 10,
                 "explain_by_default": True,
                 "context_length": 6000,
+                "ai_enabled": False,
             }
         finally:
             session.close()
@@ -207,13 +209,90 @@ def create_app() -> FastAPI:
                 prefs.explain_by_default = bool(body["explain_by_default"])
             if "context_length" in body:
                 prefs.context_length = max(1000, min(100000, body["context_length"]))
+            if "ai_enabled" in body:
+                prefs.ai_enabled = bool(body["ai_enabled"])
             session.commit()
             return {
                 "default_model": prefs.default_model,
                 "search_limit": prefs.search_limit,
                 "explain_by_default": prefs.explain_by_default,
                 "context_length": prefs.context_length,
+                    "ai_enabled": prefs.ai_enabled,
             }
+        finally:
+            session.close()
+
+    @v1.get("/search-history", tags=["system"])
+    def get_search_history(request: Request):
+        from reflens.api.deps import get_user_id
+        from reflens.db.session import get_session
+        from sqlalchemy import select
+        from reflens.db.models import SearchHistory
+
+        user_id = get_user_id(request)
+        session = get_session()
+        try:
+            rows = list(session.execute(
+                select(SearchHistory)
+                .where(SearchHistory.user_id == user_id)
+                .order_by(SearchHistory.created_at.desc())
+                .limit(50)
+            ).scalars().all())
+            return [
+                {"id": r.id, "query": r.query, "created_at": r.created_at.isoformat()}
+                for r in rows
+            ]
+        finally:
+            session.close()
+
+    @v1.post("/search-history", tags=["system"], status_code=201)
+    def add_search_history(request: Request, body: dict):
+        from reflens.api.deps import get_user_id
+        from reflens.db.session import get_session
+        from sqlalchemy import select
+        from reflens.db.models import SearchHistory
+
+        user_id = get_user_id(request)
+        query = body.get("query", "").strip()
+        if not query:
+            return {"id": None}
+
+        session = get_session()
+        try:
+            # Remove duplicate if exists
+            existing = session.execute(
+                select(SearchHistory).where(
+                    SearchHistory.user_id == user_id, SearchHistory.query == query
+                )
+            ).scalar_one_or_none()
+            if existing:
+                session.delete(existing)
+
+            entry = SearchHistory(user_id=user_id, query=query)
+            session.add(entry)
+            session.commit()
+            return {"id": entry.id}
+        finally:
+            session.close()
+
+    @v1.delete("/search-history/{entry_id}", tags=["system"], status_code=204)
+    def delete_search_history_entry(entry_id: str, request: Request):
+        from reflens.api.deps import get_user_id
+        from reflens.db.session import get_session
+        from sqlalchemy import select
+        from reflens.db.models import SearchHistory
+
+        user_id = get_user_id(request)
+        session = get_session()
+        try:
+            entry = session.execute(
+                select(SearchHistory).where(
+                    SearchHistory.id == entry_id, SearchHistory.user_id == user_id
+                )
+            ).scalar_one_or_none()
+            if entry:
+                session.delete(entry)
+                session.commit()
         finally:
             session.close()
 
