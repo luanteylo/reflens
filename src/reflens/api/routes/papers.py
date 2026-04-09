@@ -457,6 +457,32 @@ def get_paper_summaries(
     return engine.get_paper_summaries(paper_id, user_id=user_id)
 
 
+@router.delete("/{paper_id}/summaries/{summary_id}", status_code=204)
+def delete_summary(
+    paper_id: str,
+    summary_id: str,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    from sqlalchemy import select
+    from reflens.db.models import AISummary
+    session = engine._get_session()
+    try:
+        s = session.execute(
+            select(AISummary).where(
+                AISummary.id == summary_id,
+                AISummary.paper_id == paper_id,
+                AISummary.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if s is None:
+            raise HTTPException(status_code=404, detail="Summary not found")
+        session.delete(s)
+        session.commit()
+    finally:
+        session.close()
+
+
 @router.post("/{paper_id}/tag", response_model=TagGenerateResponse)
 async def tag_paper(
     paper_id: str,

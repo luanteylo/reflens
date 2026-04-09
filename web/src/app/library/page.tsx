@@ -335,11 +335,17 @@ function UploadZone() {
   >([]);
   const [uploading, setUploading] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [uploadTotal, setUploadTotal] = useState(0);
+  const [uploadDone, setUploadDone] = useState(0);
+  const [uploadCurrent, setUploadCurrent] = useState("");
   const qc = useQueryClient();
 
   const processFiles = useCallback(
     async (files: { file: File; path: string }[]) => {
       setUploading(true);
+      setUploadTotal(files.length);
+      setUploadDone(0);
+      setUploadCurrent("");
       const newResults: typeof results = [];
       // Group files by folder path for collection creation
       const byPath = new Map<string, File[]>();
@@ -373,6 +379,7 @@ function UploadZone() {
         const colId = pathToColId.get(folderPath);
 
         for (const file of folderFiles) {
+          setUploadCurrent(file.name);
           try {
             const data = await upload.mutateAsync(file);
             if (colId) {
@@ -392,11 +399,13 @@ function UploadZone() {
               error: err instanceof Error ? err.message : "Upload failed",
             });
           }
+          setUploadDone((d) => d + 1);
         }
       }
 
       setResults((prev) => [...newResults, ...prev]);
       setUploading(false);
+      setUploadCurrent("");
       // Refresh collections if any folders were processed
       const hadFolders = Array.from(byPath.keys()).some((p) => p.length > 0);
       if (hadFolders) {
@@ -477,9 +486,22 @@ function UploadZone() {
           onChange={handleFileInput}
         />
         {uploading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Uploading...
+          <div className="w-full max-w-md space-y-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Uploading {uploadDone}/{uploadTotal}</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${uploadTotal > 0 ? Math.round((uploadDone / uploadTotal) * 100) : 0}%` }}
+              />
+            </div>
+            {uploadCurrent && (
+              <p className="text-xs text-muted-foreground truncate">
+                Processing: {uploadCurrent}
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -594,6 +616,136 @@ function DoiField({ paper }: { paper: PaperSummary }) {
   );
 }
 
+// Paper summaries list
+function PaperSummaries({ paperId, hasSummary }: { paperId: string; hasSummary: boolean }) {
+  const [open, setOpen] = useState(false);
+  const { data: summaries, refetch } = useQuery({
+    queryKey: ["summaries", paperId],
+    queryFn: () => api.papers.summaries(paperId),
+    enabled: open,
+  });
+
+  if (!hasSummary && !open) return null;
+
+  const handleDelete = async (summaryId: string) => {
+    await api.papers.deleteSummary(paperId, summaryId);
+    refetch();
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+      >
+        <Sparkles className="h-3 w-3" />
+        {open ? "Hide summaries" : "Show AI summaries"}
+      </button>
+
+      {open && summaries && summaries.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {summaries.map((s) => (
+            <SummaryCard key={s.id} summary={s} paperId={paperId} onDelete={() => handleDelete(s.id)} />
+          ))}
+        </div>
+      )}
+
+      {open && summaries && summaries.length === 0 && (
+        <p className="mt-1 text-xs text-muted-foreground italic">No AI summaries yet.</p>
+      )}
+
+      {open && !summaries && (
+        <div className="mt-1">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryCard({
+  summary,
+  paperId,
+  onDelete,
+}: {
+  summary: import("@/lib/types").AISummaryResponse;
+  paperId: string;
+  onDelete: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const date = new Date(summary.created_at);
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
+      {/* Header - always visible */}
+      <div
+        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-2 text-xs">
+          {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          <span className="font-medium text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
+            {summary.model_name}
+          </span>
+          <span className="text-muted-foreground">
+            {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {summary.user_prompt && (
+            <span className="text-muted-foreground italic truncate max-w-[200px]" title={summary.user_prompt}>
+              &quot;{summary.user_prompt}&quot;
+            </span>
+          )}
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="text-muted-foreground hover:text-destructive transition-colors"
+          title="Delete summary"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* Content - expandable */}
+      {expanded && (
+        <div className="px-3 pb-3 space-y-2 border-t border-border">
+          {summary.overview && (
+            <div className="pt-2">
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Overview</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.overview}</p>
+            </div>
+          )}
+          {summary.key_contributions && summary.key_contributions.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Key Contributions</p>
+              <ul className="list-disc list-inside text-sm text-foreground/80 space-y-0.5">
+                {summary.key_contributions.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            </div>
+          )}
+          {summary.methodology && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Methodology</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.methodology}</p>
+            </div>
+          )}
+          {summary.findings && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Findings</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.findings}</p>
+            </div>
+          )}
+          {summary.limitations && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-0.5">Limitations</p>
+              <p className="text-sm text-foreground/80 leading-relaxed">{summary.limitations}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Single paper row
 function PaperRow({
   paper,
@@ -694,12 +846,7 @@ function PaperRow({
             <FileText className="h-3 w-3" />
             View PDF
           </button>
-          {paper.ai_summary && (
-            <div className="mt-2 rounded-md bg-muted/50 p-3">
-              <p className="text-xs font-medium text-muted-foreground mb-1">AI Summary</p>
-              <p className="text-sm text-foreground/80 leading-relaxed">{paper.ai_summary}</p>
-            </div>
-          )}
+          <PaperSummaries paperId={paper.id} hasSummary={!!paper.ai_summary} />
         </div>
       )}
     </div>

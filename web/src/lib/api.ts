@@ -165,6 +165,9 @@ export const api = {
     summaries(id: string) {
       return request<AISummaryResponse[]>(`/papers/${id}/summaries`);
     },
+    deleteSummary(paperId: string, summaryId: string) {
+      return request<void>(`/papers/${paperId}/summaries/${summaryId}`, { method: "DELETE" });
+    },
     tag(id: string) {
       return request<TagGenerateResponse>(`/papers/${id}/tag`, { method: "POST" });
     },
