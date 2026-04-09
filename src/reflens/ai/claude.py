@@ -293,11 +293,21 @@ class ClaudeProvider(AIProvider):
             messages=[{"role": "user", "content": prompt}],
         )
         raw = response.content[0].text
-        try:
-            data = json.loads(_extract_json(raw))
-            return {"stance": data["stance"], "explanation": data["explanation"]}
-        except (json.JSONDecodeError, KeyError):
-            return {"stance": "neutral", "explanation": raw}
+        for attempt in [raw, _extract_json(raw)]:
+            try:
+                data = json.loads(attempt)
+                if "stance" in data and "explanation" in data:
+                    return {"stance": data["stance"], "explanation": data["explanation"]}
+            except (json.JSONDecodeError, TypeError):
+                continue
+        m = re.search(r'\{[^{}]*"stance"[^{}]*"explanation"[^{}]*\}', raw)
+        if m:
+            try:
+                data = json.loads(m.group())
+                return {"stance": data["stance"], "explanation": data["explanation"]}
+            except (json.JSONDecodeError, KeyError):
+                pass
+        return {"stance": "neutral", "explanation": raw.strip()}
 
     async def check_claim(
         self, claim: str, supporting_texts: list[dict[str, str]]

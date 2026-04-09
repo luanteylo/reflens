@@ -136,11 +136,24 @@ class OpenAIProvider(AIProvider):
             max_tokens = 500
 
         raw = self._chat(prompt, max_tokens)
-        try:
-            data = json.loads(_extract_json(raw))
-            return {"stance": data["stance"], "explanation": data["explanation"]}
-        except (json.JSONDecodeError, KeyError):
-            return {"stance": "neutral", "explanation": raw}
+        # Try to parse JSON from the response
+        for attempt in [raw, _extract_json(raw)]:
+            try:
+                data = json.loads(attempt)
+                if "stance" in data and "explanation" in data:
+                    return {"stance": data["stance"], "explanation": data["explanation"]}
+            except (json.JSONDecodeError, TypeError):
+                continue
+        # Last resort: look for JSON anywhere in the text
+        import re
+        m = re.search(r'\{[^{}]*"stance"[^{}]*"explanation"[^{}]*\}', raw)
+        if m:
+            try:
+                data = json.loads(m.group())
+                return {"stance": data["stance"], "explanation": data["explanation"]}
+            except (json.JSONDecodeError, KeyError):
+                pass
+        return {"stance": "neutral", "explanation": raw.strip()}
 
     async def check_claim(
         self, claim: str, supporting_texts: list[dict[str, str]]
