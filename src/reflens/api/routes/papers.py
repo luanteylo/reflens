@@ -409,24 +409,37 @@ def delete_paper(
         raise HTTPException(status_code=404, detail="Paper not found")
 
 
-@router.post("/{paper_id}/summarize", response_model=SummarizeResponse)
+class SummarizeRequest(BaseModel):
+    model_id: str | None = None
+    user_prompt: str | None = None
+
+
+@router.post("/{paper_id}/summarize")
 async def summarize_paper(
     paper_id: str,
+    body: SummarizeRequest | None = None,
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
     try:
-        paper = await engine.summarize_paper(paper_id, user_id=user_id)
+        result = await engine.summarize_paper(
+            paper_id,
+            user_id=user_id,
+            model_id=body.model_id if body else None,
+            user_prompt=body.user_prompt if body else None,
+        )
     except ValueError:
         raise HTTPException(status_code=404, detail="Paper not found")
-    return SummarizeResponse(
-        id=paper.id,
-        ai_summary=paper.ai_summary,
-        ai_key_contributions=paper.ai_key_contributions,
-        ai_methodology=paper.ai_methodology,
-        ai_findings=paper.ai_findings,
-        ai_limitations=paper.ai_limitations,
-    )
+    return result
+
+
+@router.get("/{paper_id}/summaries")
+def get_paper_summaries(
+    paper_id: str,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    return engine.get_paper_summaries(paper_id, user_id=user_id)
 
 
 @router.post("/{paper_id}/tag", response_model=TagGenerateResponse)

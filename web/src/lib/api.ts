@@ -1,4 +1,5 @@
 import type {
+  AISummaryResponse,
   AuthorListResponse,
   CollectionDetailResponse,
   CollectionListResponse,
@@ -154,8 +155,15 @@ export const api = {
         body: form,
       });
     },
-    summarize(id: string) {
-      return request<SummarizeResponse>(`/papers/${id}/summarize`, { method: "POST" });
+    summarize(id: string, modelId?: string, userPrompt?: string) {
+      return request<AISummaryResponse>(`/papers/${id}/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_id: modelId ?? null, user_prompt: userPrompt ?? null }),
+      });
+    },
+    summaries(id: string) {
+      return request<AISummaryResponse[]>(`/papers/${id}/summaries`);
     },
     tag(id: string) {
       return request<TagGenerateResponse>(`/papers/${id}/tag`, { method: "POST" });

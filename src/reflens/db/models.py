@@ -57,6 +57,29 @@ class User(Base):
     )
 
 
+class AISummary(Base):
+    __tablename__ = "ai_summaries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    paper_id: Mapped[str] = mapped_column(
+        ForeignKey("papers.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID)
+    model_id: Mapped[str] = mapped_column(String(100))  # e.g. "ollama/mistral"
+    model_name: Mapped[str] = mapped_column(String(100))  # e.g. "mistral"
+    user_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    overview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_contributions: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    methodology: Mapped[str | None] = mapped_column(Text, nullable=True)
+    findings: Mapped[str | None] = mapped_column(Text, nullable=True)
+    limitations: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    paper: Mapped["Paper"] = relationship(back_populates="summaries")
+
+
 class UsageLog(Base):
     __tablename__ = "usage_logs"
 
@@ -183,6 +206,9 @@ class Paper(Base):
         cascade="all, delete-orphan",
     )
     tags: Mapped[list["PaperTag"]] = relationship(cascade="all, delete-orphan")
+    summaries: Mapped[list["AISummary"]] = relationship(
+        back_populates="paper", cascade="all, delete-orphan"
+    )
     notes: Mapped[list["UserNote"]] = relationship(
         back_populates="paper", cascade="all, delete-orphan"
     )

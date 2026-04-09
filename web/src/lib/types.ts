@@ -99,6 +99,19 @@ export interface BulkActionResponse {
   failed: string[];
 }
 
+export interface AISummaryResponse {
+  id: string;
+  model_id: string;
+  model_name: string;
+  user_prompt: string | null;
+  overview: string | null;
+  key_contributions: string[] | null;
+  methodology: string | null;
+  findings: string | null;
+  limitations: string | null;
+  created_at: string;
+}
+
 export interface SearchResultItem {
   paper: PaperSummary;
   score: number | null;

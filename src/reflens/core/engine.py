@@ -162,8 +162,17 @@ class RefLensEngine:
         finally:
             session.close()
 
-    async def summarize_paper(self, paper_id: str, user_id: str = "local", model_id: str | None = None) -> Paper:
-        """Generate AI summary for a paper."""
+    async def summarize_paper(
+        self,
+        paper_id: str,
+        user_id: str = "local",
+        model_id: str | None = None,
+        user_prompt: str | None = None,
+    ) -> dict:
+        """Generate AI summary for a paper. Returns the AISummary as a dict."""
+        from reflens.ai.factory import parse_model_spec
+        from reflens.db.models import AISummary
+
         session = self._get_session()
         try:
             repo = PaperRepository(session)
@@ -172,25 +181,90 @@ class RefLensEngine:
                 raise ValueError(f"Paper not found: {paper_id}")
 
             ai = self.get_ai(model_id)
+            resolved_id = model_id or f"{self.settings.ai_provider}/{self.settings.ai_model}"
+            _, model_name = parse_model_spec(resolved_id)
+
+            # If user provides extra instructions, prepend to abstract
+            abstract = paper.abstract or ""
+            if user_prompt:
+                abstract = f"[User instructions: {user_prompt}]\n\n{abstract}"
+
             summary = await ai.summarize(
                 title=paper.title,
-                abstract=paper.abstract or "",
+                abstract=abstract,
                 full_text=paper.full_text or "",
             )
             self._log_usage(ai, user_id)
 
+            # Also update the paper's flat fields (backward compat)
             paper.ai_summary = summary.overview
             paper.ai_key_contributions = summary.key_contributions
             paper.ai_methodology = summary.methodology
             paper.ai_findings = summary.findings
             paper.ai_limitations = summary.limitations
 
+            # Create AISummary record
+            ai_summary = AISummary(
+                paper_id=paper_id,
+                user_id=user_id,
+                model_id=resolved_id,
+                model_name=model_name,
+                user_prompt=user_prompt,
+                overview=summary.overview,
+                key_contributions=summary.key_contributions,
+                methodology=summary.methodology,
+                findings=summary.findings,
+                limitations=summary.limitations,
+            )
+            session.add(ai_summary)
             session.commit()
-            session.refresh(paper)
-            return paper
+
+            return {
+                "id": ai_summary.id,
+                "model_id": ai_summary.model_id,
+                "model_name": ai_summary.model_name,
+                "user_prompt": ai_summary.user_prompt,
+                "overview": ai_summary.overview,
+                "key_contributions": ai_summary.key_contributions,
+                "methodology": ai_summary.methodology,
+                "findings": ai_summary.findings,
+                "limitations": ai_summary.limitations,
+                "created_at": ai_summary.created_at.isoformat(),
+            }
         except Exception:
             session.rollback()
             raise
+        finally:
+            session.close()
+
+    def get_paper_summaries(self, paper_id: str, user_id: str = "local") -> list[dict]:
+        """Get all AI summaries for a paper."""
+        from sqlalchemy import select
+        from reflens.db.models import AISummary
+
+        session = self._get_session()
+        try:
+            stmt = (
+                select(AISummary)
+                .where(AISummary.paper_id == paper_id, AISummary.user_id == user_id)
+                .order_by(AISummary.created_at.desc())
+            )
+            summaries = list(session.execute(stmt).scalars().all())
+            return [
+                {
+                    "id": s.id,
+                    "model_id": s.model_id,
+                    "model_name": s.model_name,
+                    "user_prompt": s.user_prompt,
+                    "overview": s.overview,
+                    "key_contributions": s.key_contributions,
+                    "methodology": s.methodology,
+                    "findings": s.findings,
+                    "limitations": s.limitations,
+                    "created_at": s.created_at.isoformat(),
+                }
+                for s in summaries
+            ]
         finally:
             session.close()
 
