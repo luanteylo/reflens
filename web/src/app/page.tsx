@@ -1018,11 +1018,21 @@ export default function HomePage() {
     queryFn: () => api.aiInfo(),
   });
   const availableModels: AIModel[] = aiInfo?.models ?? [];
+  const { data: userPrefs } = useQuery({
+    queryKey: ["preferences"],
+    queryFn: () => api.preferences.get(),
+  });
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  // Set default model on first load
+  // Set default model: user preference > server default
   useEffect(() => {
-    if (aiInfo?.default && !selectedModelId) setSelectedModelId(aiInfo.default);
-  }, [aiInfo, selectedModelId]);
+    if (!selectedModelId) {
+      if (userPrefs?.default_model) {
+        setSelectedModelId(userPrefs.default_model);
+      } else if (aiInfo?.default) {
+        setSelectedModelId(aiInfo.default);
+      }
+    }
+  }, [aiInfo, userPrefs, selectedModelId]);
 
   const saveMutation = useMutation({
     mutationFn: ({ text, collectionIds, results }: { text: string; collectionIds?: string[]; results?: ReferenceResult[] }) =>

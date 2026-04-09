@@ -12,18 +12,24 @@ from reflens.api.schemas import HealthResponse
 
 
 def _cors_origins() -> list[str]:
-    origins = ["http://localhost:3000"]
+    origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
     hostname = socket.gethostname()
     if hostname != "localhost":
         origins.append(f"http://{hostname}:3000")
-    # Allow access from any IP on the local network
+    # Add all network IPs
     try:
-        ip = socket.gethostbyname(hostname)
-        if ip != "127.0.0.1":
+        import subprocess
+        result = subprocess.run(
+            ["hostname", "-I"], capture_output=True, text=True, timeout=2
+        )
+        for ip in result.stdout.strip().split():
             origins.append(f"http://{ip}:3000")
-    except socket.gaierror:
+    except Exception:
         pass
-    return origins
+    return list(set(origins))
 
 
 def create_app() -> FastAPI:

@@ -1016,10 +1016,20 @@ export default function LibraryPage() {
     queryFn: () => api.aiInfo(),
   });
   const availableModels = aiInfo?.models ?? [];
+  const { data: userPrefs } = useQuery({
+    queryKey: ["preferences"],
+    queryFn: () => api.preferences.get(),
+  });
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   useEffect(() => {
-    if (aiInfo?.default && !selectedModelId) setSelectedModelId(aiInfo.default);
-  }, [aiInfo, selectedModelId]);
+    if (!selectedModelId) {
+      if (userPrefs?.default_model) {
+        setSelectedModelId(userPrefs.default_model);
+      } else if (aiInfo?.default) {
+        setSelectedModelId(aiInfo.default);
+      }
+    }
+  }, [aiInfo, userPrefs, selectedModelId]);
 
   const deleteMutation = useDeletePaper();
   const summarizeAll = useBulkAction("summarize-all");
