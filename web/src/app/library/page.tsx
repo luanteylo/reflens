@@ -340,8 +340,28 @@ function UploadZone() {
   const [uploadCurrent, setUploadCurrent] = useState("");
   const qc = useQueryClient();
 
+  const LARGE_FILE_MB = 5;
+
   const processFiles = useCallback(
     async (files: { file: File; path: string }[]) => {
+      // Check for large files
+      const largeFiles = files.filter((f) => f.file.size > LARGE_FILE_MB * 1024 * 1024);
+      if (largeFiles.length > 0) {
+        const names = largeFiles
+          .slice(0, 5)
+          .map((f) => `  - ${f.file.name} (${(f.file.size / 1024 / 1024).toFixed(1)} MB)`)
+          .join("\n");
+        const extra = largeFiles.length > 5 ? `\n  ...and ${largeFiles.length - 5} more` : "";
+        const ok = confirm(
+          `${largeFiles.length} file${largeFiles.length > 1 ? "s are" : " is"} larger than ${LARGE_FILE_MB}MB and may take longer to process:\n\n${names}${extra}\n\nUpload all files including large ones?`
+        );
+        if (!ok) {
+          // Filter out large files
+          files = files.filter((f) => f.file.size <= LARGE_FILE_MB * 1024 * 1024);
+          if (files.length === 0) return;
+        }
+      }
+
       setUploading(true);
       setUploadTotal(files.length);
       setUploadDone(0);
