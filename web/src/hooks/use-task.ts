@@ -20,11 +20,13 @@ export function useTaskPolling(taskId: string | null) {
     },
   });
 
-  // Invalidate papers whenever completed count changes
+  // Invalidate papers and related caches whenever completed count changes
   useEffect(() => {
     if (query.data && query.data.completed > prevCompleted.current) {
       prevCompleted.current = query.data.completed;
       qc.invalidateQueries({ queryKey: ["papers"] });
+      qc.invalidateQueries({ queryKey: ["collection-detail"] });
+      qc.invalidateQueries({ queryKey: ["summaries"] });
     }
   }, [query.data, qc]);
 

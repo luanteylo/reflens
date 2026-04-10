@@ -28,7 +28,7 @@ from reflens.core.citations import (
 from reflens.core.citations import (
     get_citation_formats as get_citation_formats_helper,
 )
-from reflens.core.engine import RefLensEngine
+from reflens.core.engine import DuplicatePaperError, RefLensEngine
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 
@@ -122,6 +122,7 @@ def _paper_to_detail(paper) -> PaperDetail:
 @router.post("/upload", response_model=PaperUploadResponse)
 async def upload_paper(
     file: UploadFile,
+    force: bool = Query(False),
     engine: RefLensEngine = Depends(get_engine),
     user_id: str = Depends(get_user_id),
 ):
@@ -134,7 +135,17 @@ async def upload_paper(
         tmp_path = Path(tmp.name)
 
     try:
-        result = engine.ingest_paper(tmp_path, user_id=user_id)
+        result = engine.ingest_paper(tmp_path, user_id=user_id, force=force)
+    except DuplicatePaperError as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "duplicate",
+                "message": "A paper with the same DOI or title already exists.",
+                "existing": e.existing,
+                "extracted": e.extracted,
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))
     finally:

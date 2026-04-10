@@ -39,6 +39,17 @@ export function getPdfUrl(paperId: string): string {
 
 let _refreshing: Promise<void> | null = null;
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(status: number, detail: unknown, message?: string) {
+    super(message ?? `API ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -67,8 +78,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${body}`);
+    const text = await res.text().catch(() => "");
+    let detail: unknown = text;
+    try {
+      const parsed = JSON.parse(text);
+      detail = parsed?.detail ?? parsed;
+    } catch {
+      // keep text
+    }
+    throw new ApiError(res.status, detail, `API ${res.status}: ${text}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -201,10 +219,11 @@ export const api = {
     delete(id: string) {
       return request<void>(`/papers/${id}`, { method: "DELETE" });
     },
-    upload(file: File) {
+    upload(file: File, force = false) {
       const form = new FormData();
       form.append("file", file);
-      return request<PaperUploadResponse>("/papers/upload", {
+      const qs = force ? "?force=true" : "";
+      return request<PaperUploadResponse>(`/papers/upload${qs}`, {
         method: "POST",
         body: form,
       });

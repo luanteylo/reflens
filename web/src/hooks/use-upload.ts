@@ -6,7 +6,8 @@ import { api } from "@/lib/api";
 export function useUpload() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.papers.upload(file),
+    mutationFn: ({ file, force = false }: { file: File; force?: boolean }) =>
+      api.papers.upload(file, force),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["papers"] }),
   });
 }

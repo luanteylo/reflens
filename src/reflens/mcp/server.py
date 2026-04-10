@@ -8,7 +8,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from reflens.config import get_settings
 from reflens.core.citations import get_bibtex, get_citation_formats
-from reflens.core.engine import RefLensEngine
+from reflens.core.engine import DuplicatePaperError, RefLensEngine
 
 
 @asynccontextmanager
@@ -226,11 +226,16 @@ async def reflens_get_paper(ctx: Context, paper_id: str) -> str:
 
 
 @mcp.tool()
-async def reflens_upload_paper(ctx: Context, pdf_path: str) -> str:
+async def reflens_upload_paper(ctx: Context, pdf_path: str, force: bool = False) -> str:
     """Ingest a PDF file into the library: extracts text, metadata, references.
+
+    If a paper with the same DOI or title already exists, this tool aborts and
+    returns the duplicate info so the caller can decide. Pass force=True to
+    ingest anyway.
 
     Args:
         pdf_path: Absolute path to a local PDF file.
+        force: Ingest even if a duplicate is detected (default False).
     """
     engine = _get_engine(ctx)
     user_id = _get_user_id(ctx)
@@ -238,7 +243,16 @@ async def reflens_upload_paper(ctx: Context, pdf_path: str) -> str:
     if not path.exists():
         return f"Error: file not found: {pdf_path}"
     try:
-        result = engine.ingest_paper(path, user_id=user_id)
+        result = engine.ingest_paper(path, user_id=user_id, force=force)
+    except DuplicatePaperError as e:
+        return (
+            "Duplicate paper detected. Existing entry:\n"
+            f"  Title: {e.existing.get('title')}\n"
+            f"  Year: {e.existing.get('year') or 'Unknown'}\n"
+            f"  DOI: {e.existing.get('doi') or 'N/A'}\n"
+            f"  ID: {e.existing.get('id')}\n\n"
+            "Call again with force=True to ingest anyway."
+        )
     except Exception as e:
         return f"Error ingesting paper: {e}"
     return (

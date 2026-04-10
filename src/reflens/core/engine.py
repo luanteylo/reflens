@@ -31,6 +31,15 @@ from reflens.search.embedder import EmbeddingStore
 logger = logging.getLogger(__name__)
 
 
+class DuplicatePaperError(Exception):
+    """Raised when ingesting a paper that matches an existing one by DOI or title."""
+
+    def __init__(self, existing: dict, extracted: dict):
+        super().__init__(f"Duplicate paper: {existing.get('title')}")
+        self.existing = existing
+        self.extracted = extracted
+
+
 class RefLensEngine:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or Settings()
@@ -127,15 +136,44 @@ class RefLensEngine:
         user_id: str = "local",
         notes: str | None = None,
         reading_status: str = "unread",
+        force: bool = False,
     ) -> dict:
         """Ingest a PDF: extract, store in DB, and copy the file to storage.
 
-        Returns a dict with paper details (detached from session).
+        Raises DuplicatePaperError if a paper with the same DOI or title already
+        exists and force=False. Returns a dict with paper details (detached
+        from session) on success.
         """
         pdf_path = Path(pdf_path)
 
         # Extract
         extracted = self.extraction.extract(pdf_path)
+
+        # Duplicate check (unless the caller is force-overriding)
+        if not force:
+            session = self._get_session()
+            try:
+                repo = PaperRepository(session)
+                dupe = repo.find_duplicate(extracted.title, extracted.doi, user_id)
+                if dupe is not None:
+                    existing = {
+                        "id": dupe.id,
+                        "title": dupe.title,
+                        "doi": dupe.doi,
+                        "year": dupe.year,
+                        "authors": [a.name for a in dupe.authors],
+                    }
+                    raise DuplicatePaperError(
+                        existing=existing,
+                        extracted={
+                            "title": extracted.title,
+                            "doi": extracted.doi,
+                            "year": extracted.year,
+                            "authors": [ea.name for ea in extracted.authors],
+                        },
+                    )
+            finally:
+                session.close()
 
         # Store the PDF file
         stored_path = self._store_pdf(pdf_path, user_id)

@@ -98,6 +98,46 @@ class PaperRepository:
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def find_duplicate(
+        self, title: str | None, doi: str | None, user_id: str = "local"
+    ) -> Paper | None:
+        """Find an existing paper that duplicates the given title/DOI.
+
+        DOI match is authoritative; title match is a case-insensitive, whitespace-
+        and punctuation-normalized exact comparison.
+        """
+        if doi:
+            stmt = select(Paper).where(
+                Paper.user_id == user_id,
+                func.lower(Paper.doi) == doi.strip().lower(),
+            ).options(selectinload(Paper.authors))
+            found = self.session.execute(stmt).scalars().first()
+            if found:
+                return found
+
+        if title:
+            import re
+
+            def _normalize(t: str) -> str:
+                t = re.sub(r"[^a-zA-Z0-9\s]", "", t.lower())
+                return re.sub(r"\s+", " ", t).strip()
+
+            target = _normalize(title)
+            if not target:
+                return None
+            # Narrow candidates with a LIKE on the first meaningful word to
+            # avoid scanning the whole library.
+            first_word = target.split()[0] if target.split() else ""
+            stmt = (
+                select(Paper)
+                .where(Paper.user_id == user_id, Paper.title.ilike(f"%{first_word}%"))
+                .options(selectinload(Paper.authors))
+            )
+            for p in self.session.execute(stmt).scalars():
+                if _normalize(p.title) == target:
+                    return p
+        return None
+
     def search_by_title(self, query: str, user_id: str = "local") -> list[Paper]:
         stmt = (
             select(Paper)

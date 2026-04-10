@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 // Folder upload uses native drag-and-drop API for directory traversal
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, getPdfUrl } from "@/lib/api";
+import { api, ApiError, getPdfUrl } from "@/lib/api";
 import { usePapers, useBulkAction } from "@/hooks/use-papers";
 import { useUpload } from "@/hooks/use-upload";
 import { useSearch } from "@/hooks/use-search";
@@ -400,8 +400,12 @@ function UploadZone() {
 
         for (const file of folderFiles) {
           setUploadCurrent(file.name);
+          let force = false;
+
+          // First attempt
+          let attempt: "normal" | "force" | "skip" = "normal";
           try {
-            const data = await upload.mutateAsync(file);
+            const data = await upload.mutateAsync({ file, force: false });
             if (colId) {
               await api.collections.addPapers(colId, [data.id]);
             }
@@ -412,13 +416,65 @@ function UploadZone() {
               data,
             });
           } catch (err) {
-            newResults.push({
-              file: file.name,
-              collection: folderPath || undefined,
-              status: "error",
-              error: err instanceof Error ? err.message : "Upload failed",
-            });
+            if (err instanceof ApiError && err.status === 409) {
+              const detail = err.detail as {
+                existing?: { title?: string; doi?: string | null; year?: number | null };
+              } | null;
+              const existing = detail?.existing;
+              const title = existing?.title ?? "an existing paper";
+              const year = existing?.year ? ` (${existing.year})` : "";
+              const doi = existing?.doi ? `\nDOI: ${existing.doi}` : "";
+              const ok = confirm(
+                `Possible duplicate detected.\n\n` +
+                  `"${file.name}" matches:\n"${title}"${year}${doi}\n\n` +
+                  `Click OK to upload anyway, or Cancel to skip.`
+              );
+
+              if (ok) {
+                force = true;
+                attempt = "force";
+              } else {
+                attempt = "skip";
+                newResults.push({
+                  file: file.name,
+                  collection: folderPath || undefined,
+                  status: "error",
+                  error: "Skipped (duplicate)",
+                });
+              }
+            } else {
+              newResults.push({
+                file: file.name,
+                collection: folderPath || undefined,
+                status: "error",
+                error: err instanceof Error ? err.message : "Upload failed",
+              });
+            }
           }
+
+          // Retry with force if the user accepted the duplicate
+          if (attempt === "force") {
+            try {
+              const data = await upload.mutateAsync({ file, force });
+              if (colId) {
+                await api.collections.addPapers(colId, [data.id]);
+              }
+              newResults.push({
+                file: file.name,
+                collection: folderPath || undefined,
+                status: "success",
+                data,
+              });
+            } catch (err) {
+              newResults.push({
+                file: file.name,
+                collection: folderPath || undefined,
+                status: "error",
+                error: err instanceof Error ? err.message : "Upload failed",
+              });
+            }
+          }
+
           setUploadDone((d) => d + 1);
         }
       }
@@ -638,14 +694,13 @@ function DoiField({ paper }: { paper: PaperSummary }) {
 
 // Paper summaries list
 function PaperSummaries({ paperId, hasSummary }: { paperId: string; hasSummary: boolean }) {
-  const [open, setOpen] = useState(false);
-  const { data: summaries, refetch } = useQuery({
+  const { data: summaries, refetch, isLoading } = useQuery({
     queryKey: ["summaries", paperId],
     queryFn: () => api.papers.summaries(paperId),
-    enabled: open,
+    enabled: hasSummary,
   });
 
-  if (!hasSummary && !open) return null;
+  if (!hasSummary) return null;
 
   const handleDelete = async (summaryId: string) => {
     await api.papers.deleteSummary(paperId, summaryId);
@@ -653,31 +708,21 @@ function PaperSummaries({ paperId, hasSummary }: { paperId: string; hasSummary: 
   };
 
   return (
-    <div className="mt-2">
-      <button
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-      >
-        <Sparkles className="h-3 w-3" />
-        {open ? "Hide summaries" : "Show AI summaries"}
-      </button>
-
-      {open && summaries && summaries.length > 0 && (
-        <div className="mt-2 space-y-2">
+    <div className="mt-3">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
+        <Sparkles className="h-3 w-3 text-purple-500" />
+        <span>AI summaries</span>
+      </div>
+      {isLoading && !summaries ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : summaries && summaries.length > 0 ? (
+        <div className="space-y-2">
           {summaries.map((s) => (
             <SummaryCard key={s.id} summary={s} paperId={paperId} onDelete={() => handleDelete(s.id)} />
           ))}
         </div>
-      )}
-
-      {open && summaries && summaries.length === 0 && (
-        <p className="mt-1 text-xs text-muted-foreground italic">No AI summaries yet.</p>
-      )}
-
-      {open && !summaries && (
-        <div className="mt-1">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground italic">No AI summaries yet.</p>
       )}
     </div>
   );
@@ -692,7 +737,7 @@ function SummaryCard({
   paperId: string;
   onDelete: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const date = new Date(summary.created_at);
 
   return (
