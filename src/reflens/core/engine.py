@@ -651,8 +651,21 @@ class RefLensEngine:
             session.close()
 
     def delete_paper(self, paper_id: str, user_id: str = "local") -> bool:
+        from sqlalchemy import update
+
+        from reflens.db.models import Citation
+
         session = self._get_session()
         try:
+            # Null out incoming citation references from other papers so the
+            # FK constraint on citations.cited_paper_id doesn't block the delete.
+            session.execute(
+                update(Citation)
+                .where(Citation.cited_paper_id == paper_id)
+                .values(cited_paper_id=None)
+            )
+            session.commit()
+
             repo = PaperRepository(session)
             result = repo.delete(paper_id, user_id)
             if result:
@@ -898,6 +911,26 @@ class RefLensEngine:
             return {
                 **self._collection_to_dict(col),
                 "papers": papers,
+            }
+        finally:
+            session.close()
+
+    def rename_collection(
+        self, col_id: str, name: str, user_id: str = "local"
+    ) -> dict | None:
+        session = self._get_session()
+        try:
+            repo = CollectionRepository(session)
+            col = repo.rename(col_id, name, user_id)
+            if col is None:
+                return None
+            return {
+                "id": col.id,
+                "name": col.name,
+                "parent_id": col.parent_id,
+                "paper_count": len(col.papers) if col.papers else 0,
+                "children": [],
+                "created_at": col.created_at,
             }
         finally:
             session.close()

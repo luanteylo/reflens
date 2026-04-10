@@ -242,9 +242,11 @@ class Citation(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(255), default=DEFAULT_USER_ID, index=True)
 
-    citing_paper_id: Mapped[str] = mapped_column(ForeignKey("papers.id"))
+    citing_paper_id: Mapped[str] = mapped_column(
+        ForeignKey("papers.id", ondelete="CASCADE")
+    )
     cited_paper_id: Mapped[str | None] = mapped_column(
-        ForeignKey("papers.id"), nullable=True
+        ForeignKey("papers.id", ondelete="SET NULL"), nullable=True
     )
 
     cited_title: Mapped[str] = mapped_column(String(1000))
