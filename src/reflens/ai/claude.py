@@ -206,7 +206,7 @@ class ClaudeProvider(AIProvider):
         model: str = "claude-sonnet-4-6",
         profile: ProviderProfile | None = None,
     ):
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
         self.profile = profile or ProviderProfile()
 
@@ -238,7 +238,7 @@ class ClaudeProvider(AIProvider):
             )
             max_tokens = 2000
 
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
@@ -284,7 +284,7 @@ class ClaudeProvider(AIProvider):
             )
             max_tokens = 1000
 
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
@@ -328,7 +328,7 @@ class ClaudeProvider(AIProvider):
             )
             max_tokens = 500
 
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
@@ -368,7 +368,7 @@ class ClaudeProvider(AIProvider):
             prompt = RERANK_PROMPT.format(query=query, papers_block=papers_block)
             max_tokens = min(150 * len(papers), 3000)
 
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
@@ -394,7 +394,7 @@ class ClaudeProvider(AIProvider):
         evidence = "\n\n".join(
             f"**{item['title']}**:\n{item['text'][:limit]}" for item in supporting_texts
         )
-        response = self.client.messages.create(
+        response = await self.client.messages.create(
             model=self.model,
             max_tokens=self.profile.max_output_tokens,
             messages=[

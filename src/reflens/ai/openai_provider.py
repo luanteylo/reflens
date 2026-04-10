@@ -34,12 +34,12 @@ class OpenAIProvider(AIProvider):
         kwargs: dict = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
-        self.client = openai.OpenAI(**kwargs)
+        self.client = openai.AsyncOpenAI(**kwargs)
         self.model = model
         self.profile = profile or ProviderProfile()
 
-    def _chat(self, prompt: str, max_tokens: int, operation: str = "") -> str:
-        response = self.client.chat.completions.create(
+    async def _chat(self, prompt: str, max_tokens: int, operation: str = "") -> str:
+        response = await self.client.chat.completions.create(
             model=self.model,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
@@ -72,7 +72,7 @@ class OpenAIProvider(AIProvider):
             )
             max_tokens = 2000
 
-        text = self._chat(prompt, max_tokens, "summarize")
+        text = await self._chat(prompt, max_tokens, "summarize")
         data = json.loads(_extract_json(text))
 
         def _as_str(value: str | list, sep: str = "\n") -> str:
@@ -111,7 +111,7 @@ class OpenAIProvider(AIProvider):
             )
             max_tokens = 1000
 
-        text = self._chat(prompt, max_tokens, "tag")
+        text = await self._chat(prompt, max_tokens, "tag")
         data = json.loads(_extract_json(text))
         return [
             GeneratedTag(
@@ -149,7 +149,7 @@ class OpenAIProvider(AIProvider):
             )
             max_tokens = 500
 
-        raw = self._chat(prompt, max_tokens, "relevance")
+        raw = await self._chat(prompt, max_tokens, "relevance")
         # Try to parse JSON from the response
         for attempt in [raw, _extract_json(raw)]:
             try:
@@ -176,7 +176,7 @@ class OpenAIProvider(AIProvider):
         evidence = "\n\n".join(
             f"**{item['title']}**:\n{item['text'][:limit]}" for item in supporting_texts
         )
-        return self._chat(
+        return await self._chat(
             CLAIM_CHECK_PROMPT.format(claim=claim, evidence=evidence),
             self.profile.max_output_tokens,
         )
@@ -196,7 +196,7 @@ class OpenAIProvider(AIProvider):
         else:
             prompt = RERANK_PROMPT.format(query=query, papers_block=papers_block)
 
-        raw = self._chat(prompt, min(100 * len(papers), 2000), "rerank")
+        raw = await self._chat(prompt, min(100 * len(papers), 2000), "rerank")
         try:
             data = json.loads(_extract_json(raw))
             if isinstance(data, list):
