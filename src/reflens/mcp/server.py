@@ -521,6 +521,24 @@ async def reflens_create_collection(
 
 
 @mcp.tool()
+async def reflens_rename_collection(
+    ctx: Context, collection_id: str, name: str
+) -> str:
+    """Rename a collection.
+
+    Args:
+        collection_id: The UUID of the collection.
+        name: The new name.
+    """
+    engine = _get_engine(ctx)
+    user_id = _get_user_id(ctx)
+    col = engine.rename_collection(collection_id, name, user_id=user_id)
+    if col is None:
+        return f"Collection not found: {collection_id}"
+    return f"Renamed to '{col['name']}'"
+
+
+@mcp.tool()
 async def reflens_delete_collection(ctx: Context, collection_id: str) -> str:
     """Delete a collection (papers themselves are not deleted).
 

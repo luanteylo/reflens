@@ -24,7 +24,7 @@ import {
 // Folder upload uses native drag-and-drop API for directory traversal
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, getPdfUrl } from "@/lib/api";
-import { usePapers, useDeletePaper, useBulkAction } from "@/hooks/use-papers";
+import { usePapers, useBulkAction } from "@/hooks/use-papers";
 import { useUpload } from "@/hooks/use-upload";
 import { useSearch } from "@/hooks/use-search";
 import { Pagination } from "@/components/shared/pagination";
@@ -772,24 +772,21 @@ function PaperRow({
   selected,
   onToggle,
   onDelete,
-  draggable = true,
+  isDeleting = false,
 }: {
   paper: PaperSummary;
   selected: boolean;
   onToggle: () => void;
   onDelete: () => void;
-  draggable?: boolean;
+  isDeleting?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div
-      className="border-b border-border last:border-b-0"
-      draggable={draggable}
-      onDragStart={(e) => {
-        e.dataTransfer.setData("application/reflens-papers", JSON.stringify([paper.id]));
-        e.dataTransfer.effectAllowed = "move";
-      }}
+      className={`border-b border-border last:border-b-0 transition-opacity ${
+        isDeleting ? "opacity-40 pointer-events-none" : ""
+      }`}
     >
       <div className="flex items-center gap-3 py-3 px-1">
         <button
@@ -844,10 +841,15 @@ function PaperRow({
 
         <button
           onClick={onDelete}
-          className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
-          title="Delete"
+          disabled={isDeleting}
+          className="text-muted-foreground hover:text-destructive transition-colors shrink-0 disabled:opacity-50"
+          title={isDeleting ? "Deleting..." : "Delete"}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          {isDeleting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
 
@@ -950,27 +952,44 @@ function FolderNode({
   activeId,
   onSelect,
   onDelete,
+  onRename,
   onCreate,
-  onDrop,
 }: {
   col: PaperCollection;
   depth: number;
   activeId: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, name: string) => void;
   onCreate: (name: string, parentId: string) => void;
-  onDrop: (paperIds: string[], colId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const [dragOver, setDragOver] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(col.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const hasChildren = col.children && col.children.length > 0;
 
   useEffect(() => {
     if (creating && inputRef.current) inputRef.current.focus();
   }, [creating]);
+
+  useEffect(() => {
+    if (renaming && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renaming]);
+
+  const submitRename = () => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== col.name) {
+      onRename(col.id, trimmed);
+    }
+    setRenaming(false);
+  };
 
   return (
     <div>
@@ -978,24 +997,11 @@ function FolderNode({
         className={`group/folder flex items-center gap-1 py-1 px-1 rounded-md cursor-pointer transition-colors ${
           activeId === col.id
             ? "bg-primary/10 text-primary"
-            : dragOver
-              ? "bg-primary/5 border border-primary/20"
-              : "hover:bg-muted text-muted-foreground hover:text-foreground"
+            : "hover:bg-muted text-muted-foreground hover:text-foreground"
         }`}
         style={{ paddingLeft: `${4 + depth * 16}px` }}
-        onClick={() => onSelect(col.id === activeId ? null : col.id)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          if (confirm(`Delete "${col.name}"? Papers won't be deleted.`)) onDelete(col.id);
-        }}
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          const data = e.dataTransfer.getData("application/reflens-papers");
-          if (data) onDrop(JSON.parse(data), col.id);
-        }}
+        onClick={() => { if (!renaming) onSelect(col.id === activeId ? null : col.id); }}
+        onDoubleClick={(e) => { e.stopPropagation(); setRenameValue(col.name); setRenaming(true); }}
       >
         {hasChildren || creating ? (
           <button
@@ -1008,7 +1014,28 @@ function FolderNode({
           <span className="w-4" />
         )}
         <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-        <span className="text-xs font-medium truncate flex-1">{col.name}</span>
+        {renaming ? (
+          <input
+            ref={renameInputRef}
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={submitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitRename();
+              else if (e.key === "Escape") { setRenameValue(col.name); setRenaming(false); }
+            }}
+            className="flex-1 text-xs font-medium bg-transparent outline-none border-b border-primary"
+          />
+        ) : (
+          <span
+            className="text-xs font-medium truncate flex-1"
+            title="Double-click to rename"
+          >
+            {col.name}
+          </span>
+        )}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -1019,6 +1046,16 @@ function FolderNode({
           title="New sub-collection"
         >
           <Plus className="h-3 w-3" />
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm(`Delete "${col.name}"? Papers won't be deleted.`)) onDelete(col.id);
+          }}
+          className="opacity-0 group-hover/folder:opacity-100 shrink-0 text-muted-foreground hover:text-destructive transition-all"
+          title="Delete collection"
+        >
+          <Trash2 className="h-3 w-3" />
         </button>
         <span className="text-xs opacity-50">{col.paper_count}</span>
       </div>
@@ -1032,8 +1069,8 @@ function FolderNode({
               activeId={activeId}
               onSelect={onSelect}
               onDelete={onDelete}
+              onRename={onRename}
               onCreate={onCreate}
-              onDrop={onDrop}
             />
           ))}
           {creating && (
@@ -1073,15 +1110,15 @@ function FolderTree({
   activeId,
   onSelect,
   onDelete,
+  onRename,
   onCreate,
-  onDrop,
 }: {
   collections: PaperCollection[];
   activeId: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, name: string) => void;
   onCreate: (name: string, parentId?: string) => void;
-  onDrop: (paperIds: string[], colId: string) => void;
 }) {
   const [creatingRoot, setCreatingRoot] = useState(false);
   const [rootName, setRootName] = useState("");
@@ -1112,8 +1149,8 @@ function FolderTree({
           activeId={activeId}
           onSelect={onSelect}
           onDelete={onDelete}
+          onRename={onRename}
           onCreate={(name, parentId) => onCreate(name, parentId)}
-          onDrop={onDrop}
         />
       ))}
       {creatingRoot ? (
@@ -1223,6 +1260,7 @@ export default function LibraryPage() {
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [activeCollection, setActiveCollection] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -1271,6 +1309,56 @@ export default function LibraryPage() {
     },
   });
 
+  const renameCollectionMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      api.collections.rename(id, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collections"] });
+      qc.invalidateQueries({ queryKey: ["collection-detail"] });
+    },
+  });
+
+  const deletePapers = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setDeletingIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    const failed: string[] = [];
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await api.papers.delete(id);
+        } catch {
+          failed.push(id);
+        }
+      })
+    );
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["papers"] }),
+      qc.invalidateQueries({ queryKey: ["collections"] }),
+      qc.invalidateQueries({ queryKey: ["collection-detail"] }),
+    ]);
+    setDeletingIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    if (failed.length > 0) {
+      alert(
+        `Failed to delete ${failed.length} paper${failed.length !== 1 ? "s" : ""}. ` +
+          `They may be referenced by other records.`
+      );
+    }
+  };
+  const isDeleting = deletingIds.size > 0;
+
   const { data: aiInfo } = useQuery({
     queryKey: ["ai-info"],
     queryFn: () => api.aiInfo(),
@@ -1291,7 +1379,6 @@ export default function LibraryPage() {
     }
   }, [aiInfo, userPrefs, selectedModelId]);
 
-  const deleteMutation = useDeletePaper();
   const summarizeAll = useBulkAction("summarize-all");
   const tagAll = useBulkAction("tag-all");
 
@@ -1400,18 +1487,10 @@ export default function LibraryPage() {
                   setOffset(0);
                 }}
                 onDelete={(id) => deleteCollectionMutation.mutate(id)}
+                onRename={(id, name) => renameCollectionMutation.mutate({ id, name })}
                 onCreate={async (name, parentId) => {
                   await api.collections.create(name, parentId);
                   qc.invalidateQueries({ queryKey: ["collections"] });
-                }}
-                onDrop={async (paperIds, targetColId) => {
-                  // Move: add to target, remove from source if viewing a collection
-                  await api.collections.addPapers(targetColId, paperIds);
-                  if (activeCollection && activeCollection !== targetColId) {
-                    await api.collections.removePapers(activeCollection, paperIds);
-                  }
-                  qc.invalidateQueries({ queryKey: ["collections"] });
-                  qc.invalidateQueries({ queryKey: ["collection-detail"] });
                 }}
               />
             </div>
@@ -1453,20 +1532,52 @@ export default function LibraryPage() {
                 <CollectionActions selectedIds={selectedIds} collections={collections} />
 
                 {selectedIds.size > 0 && (
-                  <SummarizeControls
-                    models={availableModels}
-                    selectedModelId={selectedModelId}
-                    onSelectModel={setSelectedModelId}
-                    onSummarize={(modelId, prompt) =>
-                      summarizeAll.trigger(modelId, Array.from(selectedIds), prompt || undefined)
-                    }
-                    disabled={summarizeAll.isPending || summarizeAll.isActive}
-                  />
+                  <>
+                    <SummarizeControls
+                      models={availableModels}
+                      selectedModelId={selectedModelId}
+                      onSelectModel={setSelectedModelId}
+                      onSummarize={(modelId, prompt) =>
+                        summarizeAll.trigger(modelId, Array.from(selectedIds), prompt || undefined)
+                      }
+                      disabled={summarizeAll.isPending || summarizeAll.isActive}
+                    />
+                    <button
+                      onClick={() => {
+                        const count = selectedIds.size;
+                        if (confirm(`Delete ${count} paper${count !== 1 ? "s" : ""}? This cannot be undone.`)) {
+                          deletePapers(Array.from(selectedIds));
+                        }
+                      }}
+                      disabled={isDeleting}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                      Delete {selectedIds.size}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
 
             {/* Task progress */}
+            {isDeleting && (
+              <div className="rounded-lg border border-border bg-white p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-destructive" />
+                  <span className="font-medium">
+                    Deleting {deletingIds.size} paper{deletingIds.size !== 1 ? "s" : ""}...
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div className="h-full bg-destructive rounded-full animate-progress" />
+                </div>
+              </div>
+            )}
             {(summarizeAll.isPending || summarizeAll.isStarting) && (
               <div className="rounded-lg border border-border bg-white p-3 space-y-2">
                 <div className="flex items-center gap-2 text-sm">
@@ -1514,7 +1625,7 @@ export default function LibraryPage() {
                 {isSearching
                   ? `No results for "${searchQuery}"`
                   : isCollectionFiltering
-                    ? "No papers in this collection yet. Drag papers here."
+                    ? "No papers in this collection yet. Select papers and use \"Add to collection\"."
                     : selectedTags.length > 0
                       ? "No papers match all selected tags."
                       : "No papers yet. Upload a PDF to get started."}
@@ -1527,7 +1638,8 @@ export default function LibraryPage() {
                     paper={paper}
                     selected={selectedIds.has(paper.id)}
                     onToggle={() => toggleSelect(paper.id)}
-                    onDelete={() => deleteMutation.mutate(paper.id)}
+                    onDelete={() => deletePapers([paper.id])}
+                    isDeleting={deletingIds.has(paper.id)}
                   />
                 ))}
               </div>

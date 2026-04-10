@@ -321,6 +321,13 @@ export const api = {
         body: JSON.stringify({ name, parent_id: parentId ?? null }),
       });
     },
+    rename(id: string, name: string) {
+      return request<PaperCollection>(`/collections/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+    },
     delete(id: string) {
       return request<void>(`/collections/${id}`, { method: "DELETE" });
     },

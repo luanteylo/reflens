@@ -335,6 +335,19 @@ class CollectionRepository:
         self.session.commit()
         return True
 
+    def rename(self, col_id: str, name: str, user_id: str = "local") -> PaperCollection | None:
+        col = self.session.execute(
+            select(PaperCollection).where(
+                PaperCollection.id == col_id, PaperCollection.user_id == user_id
+            )
+        ).scalar_one_or_none()
+        if col is None:
+            return None
+        col.name = name
+        self.session.commit()
+        self.session.refresh(col)
+        return col
+
     def add_papers(self, col_id: str, paper_ids: list[str]) -> None:
         for pid in paper_ids:
             existing = self.session.execute(

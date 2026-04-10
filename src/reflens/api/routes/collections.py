@@ -1,5 +1,7 @@
 """Collection endpoints: CRUD and membership management."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -17,9 +19,6 @@ class CollectionCreateRequest(BaseModel):
 
 class CollectionPapersRequest(BaseModel):
     paper_ids: list[str]
-
-
-from datetime import datetime
 
 
 class CollectionResponse(BaseModel):
@@ -86,6 +85,23 @@ def get_collection(
         **col,
         papers=[_paper_to_summary(p) for p in papers],
     )
+
+
+class CollectionUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+@router.patch("/{col_id}", response_model=CollectionResponse)
+def update_collection(
+    col_id: str,
+    body: CollectionUpdateRequest,
+    engine: RefLensEngine = Depends(get_engine),
+    user_id: str = Depends(get_user_id),
+):
+    col = engine.rename_collection(col_id, body.name, user_id=user_id)
+    if col is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return CollectionResponse(**col)
 
 
 @router.delete("/{col_id}", status_code=204)
