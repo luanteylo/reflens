@@ -337,7 +337,15 @@ function UploadZone({
 }) {
   const upload = useUpload();
   const [results, setResults] = useState<
-    { file: string; collection?: string; status: "success" | "error"; data?: PaperUploadResponse; error?: string }[]
+    {
+      file: string;
+      collection?: string;
+      status: "success" | "error";
+      data?: PaperUploadResponse;
+      error?: string;
+      matchedTitle?: string;
+      matchedId?: string;
+    }[]
   >([]);
   const [uploading, setUploading] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -428,15 +436,21 @@ function UploadZone({
           } catch (err) {
             if (err instanceof ApiError && err.status === 409) {
               const detail = err.detail as {
-                existing?: { title?: string; doi?: string | null; year?: number | null };
+                existing?: {
+                  id?: string;
+                  title?: string;
+                  doi?: string | null;
+                  year?: number | null;
+                };
               } | null;
               const existing = detail?.existing;
-              const title = existing?.title ?? "an existing paper";
+              const matchedTitle = existing?.title ?? "an existing paper";
+              const matchedId = existing?.id;
               const year = existing?.year ? ` (${existing.year})` : "";
               const doi = existing?.doi ? `\nDOI: ${existing.doi}` : "";
               const ok = confirm(
                 `Possible duplicate detected.\n\n` +
-                  `"${file.name}" matches:\n"${title}"${year}${doi}\n\n` +
+                  `"${file.name}" matches:\n"${matchedTitle}"${year}${doi}\n\n` +
                   `Click OK to upload anyway, or Cancel to skip.`
               );
 
@@ -450,6 +464,8 @@ function UploadZone({
                   collection: folderPath || undefined,
                   status: "error",
                   error: "Skipped (duplicate)",
+                  matchedTitle,
+                  matchedId,
                 });
               }
             } else {
@@ -611,22 +627,29 @@ function UploadZone({
       {results.length > 0 && (
         <div className="space-y-1.5">
           {results.map((r, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm px-1">
-              {r.status === "success" ? (
-                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 text-destructive shrink-0" />
-              )}
-              <span className="truncate">
-                {r.status === "success" ? r.data?.title : r.file}
-              </span>
-              {r.collection && (
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {r.collection}
+            <div key={i} className="flex flex-col gap-0.5 px-1">
+              <div className="flex items-center gap-2 text-sm">
+                {r.status === "success" ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-destructive shrink-0" />
+                )}
+                <span className="truncate">
+                  {r.status === "success" ? r.data?.title : r.file}
                 </span>
-              )}
-              {r.status === "error" && (
-                <span className="text-xs text-destructive">{r.error}</span>
+                {r.collection && (
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {r.collection}
+                  </span>
+                )}
+                {r.status === "error" && (
+                  <span className="text-xs text-destructive">{r.error}</span>
+                )}
+              </div>
+              {r.matchedTitle && (
+                <p className="ml-6 text-xs text-muted-foreground italic truncate">
+                  matches: &quot;{r.matchedTitle}&quot;
+                </p>
               )}
             </div>
           ))}
