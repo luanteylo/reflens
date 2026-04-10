@@ -8,6 +8,61 @@ import { api, getPdfUrl } from "@/lib/api";
 import { useSearch } from "@/hooks/use-search";
 import type { AISummaryResponse, ReferenceResult, SearchResultItem, PaperCollection, SavedSearch, PaperSummary } from "@/lib/types";
 
+type StanceFilter = "all" | "supports" | "neutral" | "contradicts";
+
+function FilterBar({
+  stanceFilter,
+  setStanceFilter,
+  summarizedOnly,
+  setSummarizedOnly,
+  showStance,
+  counts,
+}: {
+  stanceFilter: StanceFilter;
+  setStanceFilter: (s: StanceFilter) => void;
+  summarizedOnly: boolean;
+  setSummarizedOnly: (v: boolean) => void;
+  showStance: boolean;
+  counts: { supports: number; neutral: number; contradicts: number; summarized: number };
+}) {
+  const pillClass = (active: boolean) =>
+    `inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${
+      active
+        ? "border-primary bg-primary/10 text-primary"
+        : "border-border text-muted-foreground hover:bg-muted"
+    }`;
+  const stances: { key: StanceFilter; label: string; count: number }[] = [
+    { key: "all", label: "All", count: counts.supports + counts.neutral + counts.contradicts },
+    { key: "supports", label: "Supports", count: counts.supports },
+    { key: "neutral", label: "Neutral", count: counts.neutral },
+    { key: "contradicts", label: "Contradicts", count: counts.contradicts },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mb-3">
+      {showStance &&
+        stances.map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => setStanceFilter(s.key)}
+            className={pillClass(stanceFilter === s.key)}
+          >
+            {s.label}
+            {s.key !== "all" && <span className="opacity-60">({s.count})</span>}
+          </button>
+        ))}
+      {showStance && <span className="mx-1 h-4 w-px bg-border" />}
+      <button
+        type="button"
+        onClick={() => setSummarizedOnly(!summarizedOnly)}
+        className={pillClass(summarizedOnly)}
+      >
+        Summarized <span className="opacity-60">({counts.summarized})</span>
+      </button>
+    </div>
+  );
+}
+
 function StanceBadge({ stance }: { stance: string | null | undefined }) {
   if (!stance) return null;
   const styles: Record<string, string> = {
@@ -1123,6 +1178,8 @@ export default function HomePage() {
   const [selectedPaperIds, setSelectedPaperIds] = useState<Set<string>>(new Set());
   const [bulkBibtexCopied, setBulkBibtexCopied] = useState(false);
   const [searchTime, setSearchTime] = useState<number | null>(null);
+  const [stanceFilter, setStanceFilter] = useState<"all" | "supports" | "neutral" | "contradicts">("all");
+  const [summarizedOnly, setSummarizedOnly] = useState(false);
   const searchStartRef = useRef<number>(0);
   const historyRef = useRef<HTMLDivElement>(null);
   // Search history from DB
@@ -1328,6 +1385,21 @@ export default function HomePage() {
 
   // Regular results
   const regularResults = regularSearchData?.results ?? null;
+
+  // Apply filters
+  const filteredAiResults = aiResults
+    ? aiResults.filter((item) => {
+        if (stanceFilter !== "all" && item.stance !== stanceFilter) return false;
+        if (summarizedOnly && !item.paper.ai_summary) return false;
+        return true;
+      })
+    : null;
+  const filteredRegularResults = regularResults
+    ? regularResults.filter((item) => {
+        if (summarizedOnly && !item.paper.ai_summary) return false;
+        return true;
+      })
+    : null;
 
   // Stop timer when results arrive
   useEffect(() => {
@@ -1565,7 +1637,9 @@ export default function HomePage() {
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-muted-foreground">
                     <Sparkles className="h-3 w-3 text-purple-500 inline mr-1" />
-                    {aiResults.length} reference{aiResults.length !== 1 ? "s" : ""} found
+                    {filteredAiResults?.length ?? 0}
+                    {(filteredAiResults?.length ?? 0) !== aiResults.length && <span> of {aiResults.length}</span>}
+                    {" "}reference{aiResults.length !== 1 ? "s" : ""} found
                     {activeColIds ? ` in ${activeColIds.length} collection${activeColIds.length !== 1 ? "s" : ""}` : ""}
                     {searchTime != null && <span className="opacity-50"> ({formatTime(searchTime)})</span>}
                   </p>
@@ -1599,10 +1673,27 @@ export default function HomePage() {
                     </button>
                   </div>
                 </div>
+                <FilterBar
+                  stanceFilter={stanceFilter}
+                  setStanceFilter={setStanceFilter}
+                  summarizedOnly={summarizedOnly}
+                  setSummarizedOnly={setSummarizedOnly}
+                  showStance
+                  counts={{
+                    supports: aiResults.filter((r) => r.stance === "supports").length,
+                    neutral: aiResults.filter((r) => r.stance === "neutral").length,
+                    contradicts: aiResults.filter((r) => r.stance === "contradicts").length,
+                    summarized: aiResults.filter((r) => r.paper.ai_summary).length,
+                  }}
+                />
                 <div className="divide-y divide-border">
-                  {aiResults.map((item) => (
-                    <ResultCard key={item.paper.id} item={item} query={input} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} modelId={selectedModelId ?? undefined} />
-                  ))}
+                  {filteredAiResults && filteredAiResults.length > 0 ? (
+                    filteredAiResults.map((item) => (
+                      <ResultCard key={item.paper.id} item={item} query={input} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} modelId={selectedModelId ?? undefined} />
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-8">No results match the current filters.</p>
+                  )}
                 </div>
               </div>
             )}
@@ -1642,7 +1733,9 @@ export default function HomePage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs text-muted-foreground">
-                    {regularResults.length} result{regularResults.length !== 1 ? "s" : ""} for &quot;{regularSearchData?.query}&quot;
+                    {filteredRegularResults?.length ?? 0}
+                    {(filteredRegularResults?.length ?? 0) !== regularResults.length && <span> of {regularResults.length}</span>}
+                    {" "}result{regularResults.length !== 1 ? "s" : ""} for &quot;{regularSearchData?.query}&quot;
                     {searchTime != null && <span className="opacity-50"> ({formatTime(searchTime)})</span>}
                   </p>
                   {selectedPaperIds.size > 0 && (
@@ -1659,10 +1752,27 @@ export default function HomePage() {
                     </button>
                   )}
                 </div>
+                <FilterBar
+                  stanceFilter={stanceFilter}
+                  setStanceFilter={setStanceFilter}
+                  summarizedOnly={summarizedOnly}
+                  setSummarizedOnly={setSummarizedOnly}
+                  showStance={false}
+                  counts={{
+                    supports: 0,
+                    neutral: 0,
+                    contradicts: 0,
+                    summarized: regularResults.filter((r) => r.paper.ai_summary).length,
+                  }}
+                />
                 <div className="divide-y divide-border">
-                  {regularResults.map((item) => (
-                    <ResultCard key={item.paper.id} item={item} query={input} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} modelId={selectedModelId ?? undefined} />
-                  ))}
+                  {filteredRegularResults && filteredRegularResults.length > 0 ? (
+                    filteredRegularResults.map((item) => (
+                      <ResultCard key={item.paper.id} item={item} query={input} onOpenPdf={(id, title) => setPdfViewer({ id, title })} selected={selectedPaperIds.has(item.paper.id)} onToggleSelect={() => togglePaperId(item.paper.id)} modelId={selectedModelId ?? undefined} />
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-8">No results match the current filters.</p>
+                  )}
                 </div>
               </div>
             )}
