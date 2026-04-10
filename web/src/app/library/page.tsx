@@ -328,7 +328,13 @@ async function readEntries(entry: FileSystemEntry, path: string = ""): Promise<{
 }
 
 // Upload area with folder support
-function UploadZone() {
+function UploadZone({
+  activeCollectionId,
+  activeCollectionName,
+}: {
+  activeCollectionId?: string | null;
+  activeCollectionName?: string | null;
+}) {
   const upload = useUpload();
   const [results, setResults] = useState<
     { file: string; collection?: string; status: "success" | "error"; data?: PaperUploadResponse; error?: string }[]
@@ -375,14 +381,16 @@ function UploadZone() {
         byPath.set(path, existing);
       }
 
-      // Resolve all unique folder paths to collection IDs upfront
+      // Resolve all unique folder paths to collection IDs upfront. If the
+      // user has a collection selected in the sidebar, everything (both
+      // loose files and dropped folder trees) is nested inside it.
       const pathToColId = new Map<string, string>();
       const allPaths = new Set(
         Array.from(byPath.keys()).filter((p) => p.length > 0)
       );
       for (const folderPath of allPaths) {
         const parts = folderPath.split("/");
-        let parentId: string | undefined;
+        let parentId: string | undefined = activeCollectionId ?? undefined;
         for (let i = 0; i < parts.length; i++) {
           const subPath = parts.slice(0, i + 1).join("/");
           if (pathToColId.has(subPath)) {
@@ -396,7 +404,9 @@ function UploadZone() {
       }
 
       for (const [folderPath, folderFiles] of byPath) {
-        const colId = pathToColId.get(folderPath);
+        const colId =
+          pathToColId.get(folderPath) ??
+          (folderPath === "" ? activeCollectionId ?? undefined : undefined);
 
         for (const file of folderFiles) {
           setUploadCurrent(file.name);
@@ -482,13 +492,15 @@ function UploadZone() {
       setResults((prev) => [...newResults, ...prev]);
       setUploading(false);
       setUploadCurrent("");
-      // Refresh collections if any folders were processed
+      // Refresh collections if any folders were processed or the upload
+      // targeted the active collection.
       const hadFolders = Array.from(byPath.keys()).some((p) => p.length > 0);
-      if (hadFolders) {
+      if (hadFolders || activeCollectionId) {
         qc.invalidateQueries({ queryKey: ["collections"] });
+        qc.invalidateQueries({ queryKey: ["collection-detail"] });
       }
     },
-    [upload, qc]
+    [upload, qc, activeCollectionId]
   );
 
   // Handle native drop to support folders
@@ -586,7 +598,12 @@ function UploadZone() {
             ) : (
               <Upload className="h-5 w-5" />
             )}
-            <span>{isDragActive ? "Drop PDFs or folders here" : "Drop PDFs or folders here, or click to browse"}</span>
+            <span>
+              {isDragActive ? "Drop PDFs or folders here" : "Drop PDFs or folders here, or click to browse"}
+              {activeCollectionName && (
+                <span className="text-primary"> → into &quot;{activeCollectionName}&quot;</span>
+              )}
+            </span>
           </div>
         )}
       </div>
@@ -1517,7 +1534,10 @@ export default function LibraryPage() {
         )}
 
         {/* Upload */}
-        <UploadZone />
+        <UploadZone
+          activeCollectionId={activeCollection}
+          activeCollectionName={collectionDetail?.name ?? null}
+        />
 
         <div className="flex gap-6">
           {/* Folder tree sidebar */}
